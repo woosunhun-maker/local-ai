@@ -107,6 +107,20 @@ function validateStore(value) {
   return value;
 }
 
+function publicBindings(bindings) {
+  if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) return Object.freeze({});
+  const out = {};
+  if (bindings.cursor && typeof bindings.cursor === "object") {
+    out.cursor = Object.freeze({
+      module: "cursor",
+      approval_id: bindings.cursor.approval_id,
+      kind: bindings.cursor.kind ?? null,
+      session_id: bindings.cursor.session_id ?? null,
+    });
+  }
+  return Object.freeze(out);
+}
+
 function publicTask(task) {
   return Object.freeze({
     task_id: task.task_id,
@@ -120,6 +134,7 @@ function publicTask(task) {
     error: task.error,
     approval_required: task.approval_required,
     correlation_id: task.correlation_id ?? null,
+    bindings: publicBindings(task.bindings),
   });
 }
 
@@ -199,6 +214,7 @@ export class TaskManagerStore {
         correlation_id: typeof correlationId === "string" && correlationId.length >= 8
           ? correlationId
           : null,
+        bindings: {},
       };
       store.tasks.push(task);
       store.tasks = store.tasks.slice(-MAX_TASKS);
@@ -321,6 +337,38 @@ export class TaskManagerStore {
         ...task,
         updated_at: new Date(this.now()).toISOString(),
         evidence: [...task.evidence, ...added].slice(-MAX_EVIDENCE_PER_TASK),
+      };
+      store.tasks[index] = updated;
+      await this.write(store);
+      return publicTask(updated);
+    });
+  }
+
+  async setBindings(taskId, bindingsPatch = {}) {
+    if (!bindingsPatch || typeof bindingsPatch !== "object" || Array.isArray(bindingsPatch)) {
+      throw taskError("invalid_task_bindings");
+    }
+    const forbiddenKeys = ["signature", "signatureDER", "signature_der", "token", "privateKey", "publicKeyDER"];
+    const walk = (value) => {
+      if (!value || typeof value !== "object") return;
+      for (const [key, child] of Object.entries(value)) {
+        if (forbiddenKeys.includes(key)) throw taskError("secret_binding_forbidden", 400);
+        if (child && typeof child === "object") walk(child);
+      }
+    };
+    walk(bindingsPatch);
+    return this.serialized(async () => {
+      const store = await this.read();
+      const index = store.tasks.findIndex((entry) => entry.task_id === taskId);
+      if (index < 0) throw taskError("task_not_found", 404);
+      const task = store.tasks[index];
+      const updated = {
+        ...task,
+        updated_at: new Date(this.now()).toISOString(),
+        bindings: {
+          ...(task.bindings && typeof task.bindings === "object" ? task.bindings : {}),
+          ...bindingsPatch,
+        },
       };
       store.tasks[index] = updated;
       await this.write(store);

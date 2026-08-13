@@ -38,6 +38,7 @@ import { TaskManagerStore } from "./task/task-manager-store.mjs";
 import { createEvidenceRecord } from "./evidence/evidence.mjs";
 import { createTaskExecutor } from "./executor/task-executor.mjs";
 import { createTaskOrchestrator } from "./executor/task-orchestrator.mjs";
+import { createCursorDevelopmentAdapter } from "./adapters/cursor/cursor-development-adapter.mjs";
 import { DevelopmentLedgerStore } from "./ledger/development-ledger.mjs";
 import { DecisionMemoryStore } from "./memory/decision-memory-store.mjs";
 import { DiscussionContextStore } from "./memory/discussion-context-store.mjs";
@@ -502,9 +503,25 @@ async function main() {
   await taskManager.initialize();
   const developmentLedger = await new DevelopmentLedgerStore(DEVELOPMENT_LEDGER_PATH).initialize();
   const taskExecutor = createTaskExecutor({ toolRegistry, structuredLog });
+  const cursorDevelopmentAdapter = createCursorDevelopmentAdapter({
+    approvalStore,
+    developmentLedger,
+    // 권한 대기: ApprovalStore를 폴링 (API key 무인 인증 없음). LIVE에서 owner 앱이 decide.
+    waitForPermissionDecision: async (approvalId) => {
+      const deadline = Date.now() + 10 * 60_000;
+      while (Date.now() < deadline) {
+        const row = await approvalStore.get(approvalId);
+        if (!row) return "expired";
+        if (row.status !== "pending") return row.status;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      return "expired";
+    },
+  });
   const taskOrchestrator = createTaskOrchestrator({
     taskStore: taskManager,
     executor: taskExecutor,
+    cursorAdapter: cursorDevelopmentAdapter,
     structuredLog,
   });
   const ownerActionExecutor = new OwnerActionExecutor({
@@ -696,6 +713,8 @@ async function main() {
               toolName: body?.tool_name,
               channel: body?.channel ?? "local_owner_app",
               hasApproval: body?.has_approval === true,
+              prompt: typeof body?.prompt === "string" ? body.prompt : null,
+              testCommand: typeof body?.test_command === "string" ? body.test_command : null,
               expectations: Array.isArray(body?.expectations) ? body.expectations : [],
             });
             return json(response, 200, result);

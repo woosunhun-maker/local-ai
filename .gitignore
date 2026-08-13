@@ -1,6 +1,9 @@
 # Canonical personal archives and visual evidence stay outside source history.
 /WINDOWS_CODEX_FULL_EXPORT_2026-08-04/
 /artifacts/
+.preserve/
+
+# Codex PHASE5 스냅샷 등 로컬 보존물 — main 커밋에 포함하지 않는다.
 
 # 별도 저장소·비밀·대용량·런타임 산출물은 Local AI baseline에서 제외한다.
 .private/

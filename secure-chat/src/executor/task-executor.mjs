@@ -18,6 +18,7 @@ const DEFERRED_TOOLS = new Set([
   "owner.action.execute",
   "codex.enqueue",
   "growth.dispatch",
+  "cursor.develop",
 ]);
 
 export function createTaskExecutor({

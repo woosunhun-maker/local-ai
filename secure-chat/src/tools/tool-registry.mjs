@@ -231,6 +231,21 @@ export function createBuiltinToolRegistry({
   });
 
   registry.register({
+    tool_name: "cursor.develop",
+    capability: "delegate_cursor_acp_development",
+    description: "Cursor ACP로 승인된 소규모 코드 변경 위임",
+    enabled: true,
+    available: true,
+    risk_level: "HIGH",
+    allowed_channels: ["local_owner_app"],
+    approval_requirement: "prior_approved_request",
+    input_contract: { schema: "local-ai.cursor-develop.v1" },
+    output_contract: { task_status: "SUCCESS|NEEDS_REPLAN|FAILED" },
+    implementation: "src/adapters/cursor/cursor-development-adapter.mjs",
+    executes_effects: true,
+  });
+
+  registry.register({
     tool_name: "tts.stream",
     capability: "synthesize_speech",
     description: "로컬 TTS 스트림",
