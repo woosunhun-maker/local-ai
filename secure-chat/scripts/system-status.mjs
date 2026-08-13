@@ -19,14 +19,20 @@ const { TaskManagerStore } = await import(
 const textMode = process.argv.includes("--text");
 const store = new TaskManagerStore("/Users/hun/PrivateAI/data/task-manager/tasks.json");
 let taskSummary = null;
+let taskManagerReady = false;
 try {
   await store.initialize();
   taskSummary = await store.summary();
+  taskManagerReady = true;
 } catch {
   taskSummary = null;
+  taskManagerReady = false;
 }
 
-const result = await runSystemCommand("system.status", { taskSummary });
+const result = await runSystemCommand("system.status", {
+  taskSummary,
+  healthOptions: { taskManagerReady },
+});
 if (textMode) {
   process.stdout.write(`${formatSystemStatusText(result)}\n`);
 } else {
