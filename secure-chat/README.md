@@ -14,6 +14,7 @@ Telegram은 로컬 일반 대화와 Codex 상태 조회에 쓸 수 있다. 종�
 - Siri/App Intents 음성 지시, 사용자 시작 음성 입력, 민감 본문 없는 선제 알림
 - Apple 음성 전체 미리듣기와 로컬 Qwen3-TTS Sohee 추천 음성
 - iPhone Secure Enclave P-256 서명 기반 중요 작업 승인
+- 일반 승인(Envelope, cursor.develop, growth 등)과 Codex 승인 모두 Face ID 또는 iPhone 암호 필수 (승인 키 v2 + `.userPresence`)
 - 모델 문구가 아니라 정규화된 상품·옵션·수량·가격 계획에서 결정적으로 생성되는 장바구니 승인 preview
 - 개인정보를 제외한 집계 성능 문제만 외부 AI에 질문할 수 있는 제안형 성장 파이프라인
 - OpenClaw·도구·개인 메모리와 물리적으로 분리된 Telegram 일반대화 릴레이

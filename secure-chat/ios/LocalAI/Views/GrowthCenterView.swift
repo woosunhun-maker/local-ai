@@ -115,7 +115,7 @@ struct GrowthCenterView: View {
         } header: {
             Text("성장 안전장치")
         } footer: {
-            Text("아이폰이 화면에 표시한 본문을 다시 해시하고 서명합니다. Mac은 같은 본문과 요청만 한 번 처리하며, 승인했다고 임의 작업 권한이 생기지 않습니다. 외부 답변은 실행 권한이 없는 검토 자료로만 저장됩니다.\n\(updatedLabel(statusUpdatedAt))")
+            Text("승인·거부 모두 Face ID 또는 iPhone 암호가 필요합니다. 아이폰이 화면에 표시한 본문을 다시 해시하고 Secure Enclave로 서명합니다. Mac은 같은 본문과 요청만 한 번 처리하며, 승인했다고 임의 작업 권한이 생기지 않습니다. 외부 답변은 실행 권한이 없는 검토 자료로만 저장됩니다.\n\(updatedLabel(statusUpdatedAt))")
         }
     }
 
@@ -442,16 +442,22 @@ private struct ApprovalCard: View {
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
                     .disabled(busy)
-                Button("승인") { onDecision(.approved) }
+                    .accessibilityHint("Face ID 또는 iPhone 암호로 거부를 서명합니다")
+                Button {
+                    onDecision(.approved)
+                } label: {
+                    Label("Face ID로 승인", systemImage: "faceid")
+                }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
                     .disabled(busy || !expanded || !approval.payloadHashMatches)
+                    .accessibilityHint("Face ID 또는 iPhone 암호로 승인을 서명합니다")
             }
 
             if busy {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("기기 서명 확인 중")
+                    Text("Face ID / 암호 확인 중")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
