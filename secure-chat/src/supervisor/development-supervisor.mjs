@@ -284,70 +284,88 @@ export function createDevelopmentSupervisor({
       return Object.freeze({ run, phase: "BLOCKED", reason: budget.reason });
     }
 
-    if (run.status === "WAITING_ENVELOPE_APPROVAL") {
+    if (run.status === "WAITING_ENVELOPE_APPROVAL" || run.status === "WAITING_OWNER") {
       run = await runStore.transition(runId, { toStatus: "RUNNING_TASKS" });
     }
 
     const tasks = run.proposal?.proposed_tasks ?? [];
-    const limit = Math.min(
-      maxTasks ?? tasks.length,
-      run.budget.max_leaf_tasks - (run.counters.leaf_tasks_created ?? 0),
-    );
     const leafResults = [];
+    const existingLeafIds = [...(run.leaf_task_ids ?? [])];
+    const targetCount = Math.min(maxTasks ?? tasks.length, tasks.length);
 
-    for (let i = 0; i < limit; i += 1) {
+    for (let i = 0; i < targetCount; i += 1) {
       const planned = tasks[i];
       if (!planned) break;
-      if (!runStore.canCreateLeafTask(run)) {
-        run = await runStore.transition(runId, {
-          toStatus: "BLOCKED",
-          blockedReason: "max_leaf_tasks_exceeded",
+
+      let leafId = existingLeafIds[i] ?? null;
+      let leaf = leafId ? await taskStore.get(leafId) : null;
+
+      if (!leaf) {
+        if (!runStore.canCreateLeafTask(run)) {
+          run = await runStore.transition(runId, {
+            toStatus: "BLOCKED",
+            blockedReason: "max_leaf_tasks_exceeded",
+          });
+          break;
+        }
+        leaf = await taskStore.create({
+          goal: planned.title,
+          approvalRequired: true,
+          currentStep: "supervisor_leaf",
+          nextStep: "cursor.develop",
+          correlationId: run.run_id,
         });
-        break;
+        leafId = leaf.task_id;
+        const counters = {
+          ...run.counters,
+          leaf_tasks_created: (run.counters.leaf_tasks_created ?? 0) + 1,
+          total_attempts: (run.counters.total_attempts ?? 0) + 1,
+          replans_by_task: { ...(run.counters.replans_by_task ?? {}) },
+        };
+        existingLeafIds.push(leafId);
+        run = await runStore.update(runId, {
+          counters,
+          leaf_task_ids: existingLeafIds,
+        });
+
+        await taskStore.setBindings(leaf.task_id, {
+          cursor: {
+            module: "cursor",
+            kind: "cursor.develop",
+          },
+          supervisor: {
+            run_id: run.run_id,
+            envelope_digest: run.envelope.envelope_digest,
+            worktree_path: run.worktree.worktree_path,
+            write_roots: run.worktree.write_roots,
+            main_repo: run.worktree.main_repo,
+            main_read_only: true,
+            success_criteria: run.envelope.success_criteria,
+            success_criteria_digest: successCriteriaDigest(run.envelope.success_criteria),
+            out_of_scope: run.envelope.out_of_scope,
+            allowed_paths: run.envelope.allowed_paths,
+          },
+        });
+      } else if (leaf.status === "SUCCESS") {
+        leafResults.push({
+          task_id: leaf.task_id,
+          phase: "SUCCESS",
+          verification: { result: "PASS", reason: "already_success" },
+        });
+        continue;
+      } else {
+        // resume: attempt 카운트만 증가
+        run = await runStore.update(runId, {
+          counters: {
+            ...run.counters,
+            total_attempts: (run.counters.total_attempts ?? 0) + 1,
+            replans_by_task: { ...(run.counters.replans_by_task ?? {}) },
+          },
+        });
       }
 
-      const leaf = await taskStore.create({
-        goal: planned.title,
-        approvalRequired: true,
-        currentStep: "supervisor_leaf",
-        nextStep: "cursor.develop",
-        correlationId: run.run_id,
-      });
-
-      const counters = {
-        ...run.counters,
-        leaf_tasks_created: (run.counters.leaf_tasks_created ?? 0) + 1,
-        total_attempts: (run.counters.total_attempts ?? 0) + 1,
-        replans_by_task: { ...(run.counters.replans_by_task ?? {}) },
-      };
-      const leafTaskIds = [...(run.leaf_task_ids ?? []), leaf.task_id];
-      run = await runStore.update(runId, {
-        counters,
-        leaf_task_ids: leafTaskIds,
-      });
-
-      // bindings: worktree write roots + frozen criteria digest
-      await taskStore.setBindings(leaf.task_id, {
-        cursor: {
-          module: "cursor",
-          kind: "cursor.develop",
-        },
-        supervisor: {
-          run_id: run.run_id,
-          envelope_digest: run.envelope.envelope_digest,
-          worktree_path: run.worktree.worktree_path,
-          write_roots: run.worktree.write_roots,
-          main_repo: run.worktree.main_repo,
-          main_read_only: true,
-          success_criteria: run.envelope.success_criteria,
-          success_criteria_digest: successCriteriaDigest(run.envelope.success_criteria),
-          out_of_scope: run.envelope.out_of_scope,
-          allowed_paths: run.envelope.allowed_paths,
-        },
-      });
-
       let result = await taskOrchestrator.run({
-        taskId: leaf.task_id,
+        taskId: leafId,
         toolName: planned.tool_name ?? "cursor.develop",
         channel: run.channel,
         prompt: planned.prompt,
@@ -364,7 +382,7 @@ export function createDevelopmentSupervisor({
       // leaf cursor.develop / WRITE permission은 기존 ApprovalStore 유지
       if (result.phase === "WAITING_APPROVAL") {
         leafResults.push({
-          task_id: leaf.task_id,
+          task_id: leafId,
           phase: result.phase,
           approval_id: result.approval_id,
         });
@@ -392,13 +410,13 @@ export function createDevelopmentSupervisor({
         expectedDigest: successCriteriaDigest(run.envelope.success_criteria),
       });
       const verification = verifyTaskOutcome({
-        task: result.task ?? { task_id: leaf.task_id, evidence: result.task?.evidence ?? [] },
+        task: result.task ?? { task_id: leafId, evidence: result.task?.evidence ?? [] },
         checks: [...(hostOutcome.checks ?? []), ...criteriaChecks],
         requireVerified: true,
       });
 
       leafResults.push({
-        task_id: leaf.task_id,
+        task_id: leafId,
         phase: result.phase,
         verification,
         host: result.host ? {
@@ -411,7 +429,7 @@ export function createDevelopmentSupervisor({
         run,
         envelope: run.envelope,
         verification,
-        taskId: leaf.task_id,
+        taskId: leafId,
         attempt: {
           proposal_digest: run.proposal.proposal_digest,
           worktree_path: run.worktree.worktree_path,
@@ -428,7 +446,7 @@ export function createDevelopmentSupervisor({
       });
 
       if (decision.action === "auto_replan") {
-        if (!runStore.canReplanTask(run, leaf.task_id)) {
+        if (!runStore.canReplanTask(run, leafId)) {
           run = await runStore.transition(runId, {
             toStatus: "BLOCKED",
             blockedReason: "max_replans_per_task_exceeded",
@@ -437,7 +455,7 @@ export function createDevelopmentSupervisor({
         }
         const replans = {
           ...(run.counters.replans_by_task ?? {}),
-          [leaf.task_id]: (run.counters.replans_by_task?.[leaf.task_id] ?? 0) + 1,
+          [leafId]: (run.counters.replans_by_task?.[leafId] ?? 0) + 1,
         };
         run = await runStore.update(runId, {
           counters: {
@@ -446,9 +464,9 @@ export function createDevelopmentSupervisor({
             replans_by_task: replans,
           },
         });
-        await taskOrchestrator.replan(leaf.task_id);
+        await taskOrchestrator.replan(leafId);
         result = await taskOrchestrator.run({
-          taskId: leaf.task_id,
+          taskId: leafId,
           toolName: planned.tool_name ?? "cursor.develop",
           channel: run.channel,
           prompt: planned.prompt,
@@ -461,7 +479,7 @@ export function createDevelopmentSupervisor({
           successCriteria: run.envelope.success_criteria,
         });
         leafResults[leafResults.length - 1] = {
-          task_id: leaf.task_id,
+          task_id: leafId,
           phase: result.phase,
           verification: result.verification,
           replanned: true,
