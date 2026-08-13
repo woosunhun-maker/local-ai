@@ -46,6 +46,7 @@ import { createMemoryContextFacade } from "./memory/context-facade.mjs";
 import { createBuiltinToolRegistry } from "./tools/tool-registry.mjs";
 import { evaluateApprovalPolicy } from "./approval/approval-policy.mjs";
 import { getIosAppReleaseInfo } from "./ios-app-release.mjs";
+import { DevelopmentRunStore } from "./supervisor/development-run-store.mjs";
 import { createDevelopmentSupervisor } from "./supervisor/development-supervisor.mjs";
 import { assertMergeExecutionForbidden } from "./supervisor/merge-to-main-schema.mjs";
 import { streamTtsEvents } from "./tts/http-stream.mjs";
