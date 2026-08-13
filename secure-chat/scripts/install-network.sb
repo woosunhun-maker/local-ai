@@ -1,0 +1,27 @@
+(version 1)
+(import "system.sb")
+(allow default)
+(deny file-read-data
+  (require-all
+    (subpath "/Users/hun")
+    (require-not (subpath "/Users/hun/PrivateAI/runtime/tts"))
+    (require-not (subpath "/Users/hun/PrivateAI/models/tts"))
+    (require-not (subpath "/Users/hun/PrivateAI/tmp/tts"))))
+(deny file-read-metadata
+  (require-all
+    (subpath "/Users/hun")
+    (require-not (literal "/Users/hun"))
+    (require-not (literal "/Users/hun/PrivateAI"))
+    (require-not (literal "/Users/hun/PrivateAI/runtime"))
+    (require-not (literal "/Users/hun/PrivateAI/models"))
+    (require-not (literal "/Users/hun/PrivateAI/tmp"))
+    (require-not (subpath "/Users/hun/PrivateAI/runtime/tts"))
+    (require-not (subpath "/Users/hun/PrivateAI/models/tts"))
+    (require-not (subpath "/Users/hun/PrivateAI/tmp/tts"))))
+(deny file-read* (subpath "/Volumes"))
+(deny file-read* (subpath "/private/var/folders"))
+(deny file-write*
+  (require-all
+    (require-not (subpath "/Users/hun/PrivateAI/runtime/tts"))
+    (require-not (subpath "/Users/hun/PrivateAI/models/tts"))
+    (require-not (subpath "/Users/hun/PrivateAI/tmp/tts"))))

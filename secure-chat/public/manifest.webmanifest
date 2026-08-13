@@ -1,0 +1,13 @@
+{
+  "name": "나의 Local AI",
+  "short_name": "Local AI",
+  "description": "iPhone과 Mac을 직접 연결하는 개인 로컬 AI 대화창",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0d12",
+  "theme_color": "#10131a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

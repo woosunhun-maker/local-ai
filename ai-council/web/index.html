@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>로컬 AI</title>
+  <style>
+    :root {
+      --bg: #0f1218;
+      --panel: #171b24;
+      --text: #e8eaef;
+      --muted: #9aa3b2;
+      --line: #2a3140;
+      --accent: #3d8bfd;
+      --good: #3ecf8e;
+      --warn: #e6b84d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Pretendard", "Apple SD Gothic Neo", sans-serif;
+      background: radial-gradient(1200px 600px at 20% -10%, #1a2233, var(--bg));
+      color: var(--text);
+    }
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 28px 18px 40px;
+      display: grid;
+      gap: 16px;
+      min-height: 100vh;
+      grid-template-rows: auto auto auto 1fr auto;
+    }
+    h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.03em; }
+    .sub { color: var(--muted); font-size: 0.95rem; margin-top: 6px; }
+    .badge {
+      display: inline-flex; gap: 8px; align-items: center;
+      padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+      background: var(--panel); color: var(--muted); font-size: 0.85rem; width: fit-content;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+    .dot.ok { background: var(--good); }
+    #log {
+      border: 1px solid var(--line); background: rgba(23, 27, 36, 0.92);
+      border-radius: 16px; padding: 16px; overflow: auto; display: grid; gap: 12px; align-content: start;
+    }
+    .msg { padding: 12px 14px; border-radius: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .msg.user { background: #243049; }
+    .msg.ai { background: #1b212d; border: 1px solid var(--line); }
+    .meta { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
+    form, .memory-box {
+      display: grid; gap: 10px; border: 1px solid var(--line); background: var(--panel);
+      border-radius: 16px; padding: 14px;
+    }
+    textarea, input[type="text"] {
+      width: 100%; border: 1px solid var(--line); border-radius: 12px;
+      background: #0f141e; color: var(--text); padding: 12px; font: inherit;
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    label.mode { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); user-select: none; }
+    button {
+      border: 0; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 600;
+      cursor: pointer; background: var(--accent); color: white; min-width: 110px;
+    }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    button.secondary { background: transparent; border: 1px solid var(--line); color: var(--text); }
+    .hint { color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>로컬 AI</h1>
+      <p class="sub">기본은 로컬만. 체크해야 대신 물어보기. 기억은 확인해야 저장됩니다.</p>
+    </header>
+    <div class="badge" id="status"><span class="dot" id="dot"></span><span id="statusText">연결 확인 중…</span></div>
+    <section class="memory-box">
+      <div class="row">
+        <strong>장기기억</strong>
+        <span class="hint" id="memoryCount">활성 0개</span>
+      </div>
+      <input id="memoryText" type="text" placeholder="예: 커피는 아이스를 좋아함" />
+      <div class="row">
+        <span class="hint">민감정보(비번/계좌 등)는 저장 거부</span>
+        <button type="button" class="secondary" id="memorySaveBtn">기억 후보 만들기</button>
+      </div>
+      <div id="memoryPending" class="hint"></div>
+    </section>
+    <section id="log" aria-live="polite"></section>
+    <form id="form">
+      <textarea id="prompt" placeholder="질문 입력 · Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
+      <div class="row">
+        <label class="mode">
+          <input type="checkbox" id="council" />
+          다른 AI에게 대신 물어보기
+          <span class="hint">(체크 시 로컬 대조 + ChatGPT 창/클립보드)</span>
+        </label>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="secondary" id="clearBtn">대화 지우기</button>
+          <button type="submit" id="sendBtn">보내기</button>
+        </div>
+      </div>
+    </form>
+  </main>
+  <script>
+    const log = document.getElementById("log")
+    const form = document.getElementById("form")
+    const promptEl = document.getElementById("prompt")
+    const councilEl = document.getElementById("council")
+    const sendBtn = document.getElementById("sendBtn")
+    const clearBtn = document.getElementById("clearBtn")
+    const dot = document.getElementById("dot")
+    const statusText = document.getElementById("statusText")
+    const memoryCount = document.getElementById("memoryCount")
+    const memoryText = document.getElementById("memoryText")
+    const memorySaveBtn = document.getElementById("memorySaveBtn")
+    const memoryPending = document.getElementById("memoryPending")
+
+    const addMsg = (role, text, meta = "") => {
+      const el = document.createElement("div")
+      el.className = `msg ${role}`
+      el.textContent = text
+      if (meta) {
+        const m = document.createElement("div")
+        m.className = "meta"
+        m.textContent = meta
+        el.appendChild(m)
+      }
+      log.appendChild(el)
+      log.scrollTop = log.scrollHeight
+    }
+
+    const setStatus = (ok, text) => {
+      dot.classList.toggle("ok", ok)
+      statusText.textContent = text
+    }
+
+    const refreshHealth = async () => {
+      try {
+        const res = await fetch("/health")
+        const data = await res.json()
+        if (data.ok) {
+          const mem = data.active_memory_count ?? 0
+          setStatus(true, `로컬 연결됨 · 모델 ${data.model} · 기억 ${mem}`)
+          memoryCount.textContent = `활성 ${mem}개`
+        } else setStatus(false, data.error || "연결 실패")
+      } catch {
+        setStatus(false, "서버 연결 실패")
+      }
+    }
+
+    const sendPrompt = async () => {
+      const prompt = promptEl.value.trim()
+      if (!prompt || sendBtn.disabled) return
+      addMsg("user", prompt)
+      promptEl.value = ""
+      sendBtn.disabled = true
+      sendBtn.textContent = "생각 중…"
+      try {
+        const res = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, council: councilEl.checked }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || "요청 실패")
+        const meta = [
+          `source:${data.recommended_source}`,
+          data.used_local_council ? "mode:council" : "mode:local",
+          `기억:${data.active_memory_count ?? 0}`,
+          data.local_duration_ms != null ? `${data.local_duration_ms}ms` : "",
+        ].filter(Boolean).join(" · ")
+        addMsg("ai", data.answer || "(빈 응답)", meta)
+        if (data.active_memory_count != null) memoryCount.textContent = `활성 ${data.active_memory_count}개`
+      } catch (err) {
+        addMsg("ai", `오류: ${err.message || err}`)
+      } finally {
+        sendBtn.disabled = false
+        sendBtn.textContent = "보내기"
+        promptEl.focus()
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault()
+      await sendPrompt()
+    })
+
+    promptEl.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || e.shiftKey) return
+      e.preventDefault()
+      sendPrompt()
+    })
+
+    memorySaveBtn.addEventListener("click", async () => {
+      const text = memoryText.value.trim()
+      if (!text) return
+      memorySaveBtn.disabled = true
+      try {
+        const proposeRes = await fetch("/api/memory/propose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        })
+        const proposed = await proposeRes.json()
+        if (!proposeRes.ok) throw new Error(proposed.error || "후보 실패")
+        memoryPending.innerHTML = ""
+        const wrap = document.createElement("div")
+        wrap.className = "row"
+        const label = document.createElement("span")
+        label.textContent = `후보: ${proposed.text}`
+        const okBtn = document.createElement("button")
+        okBtn.type = "button"
+        okBtn.textContent = "확인해서 기억에 넣기"
+        okBtn.addEventListener("click", async () => {
+          const confirmRes = await fetch("/api/memory/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: proposed.id, share_external: false }),
+          })
+          const confirmed = await confirmRes.json()
+          if (!confirmRes.ok) throw new Error(confirmed.error || "확인 실패")
+          memoryPending.textContent = "장기기억에 저장됨. 이제 어디서 물어봐도 참고합니다."
+          memoryText.value = ""
+          refreshHealth()
+        })
+        wrap.appendChild(label)
+        wrap.appendChild(okBtn)
+        memoryPending.appendChild(wrap)
+      } catch (err) {
+        memoryPending.textContent = `오류: ${err.message || err}`
+      } finally {
+        memorySaveBtn.disabled = false
+      }
+    })
+
+    clearBtn.addEventListener("click", () => { log.innerHTML = "" })
+    refreshHealth()
+    setInterval(refreshHealth, 15000)
+    promptEl.focus()
+  </script>
+</body>
+</html>

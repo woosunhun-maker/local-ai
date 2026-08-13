@@ -1,0 +1,809 @@
+#!/opt/homebrew/bin/node
+
+import { execFile, spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import http from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { AuthStore } from "./auth-store.mjs";
+import { ApprovalStore } from "./approval-store.mjs";
+import { SharedChromeClient } from "./browser/shared-chrome-client.mjs";
+import { OwnerCodexTaskCoordinator } from "./codex/owner-task-coordinator.mjs";
+import { CodexTaskStore } from "./codex/task-store.mjs";
+import { GrowthCoordinator } from "./growth/coordinator.mjs";
+import { DLP_POLICY_VERSION } from "./growth/dlp.mjs";
+import {
+  createOpenClawGrowthDispatchAdapter,
+  parseStructuredAdvice,
+  proposalContentFromAdvice,
+} from "./growth/openclaw-dispatch-adapter.mjs";
+import { GrowthProposalStore } from "./growth/proposal-store.mjs";
+import { assertChatModeAccess, resolveChatMode, trimChatContext } from "./chat-routing.mjs";
+import {
+  ConfirmedMemoryStore,
+  ConfirmedMemoryStoreError,
+  withMemorySystemMessage,
+} from "./confirmed-memory-store.mjs";
+import { assertConversationModel, LOCAL_CONVERSATION_MODEL } from "./local-model-routing.mjs";
+import { ollamaStreamToSSE, toOpenAICompletion } from "./ollama-protocol.mjs";
+import { verifyOpenAIEventStream } from "./openai-stream.mjs";
+import { ProactiveStore } from "./proactive-store.mjs";
+import { FixedWindowRateLimiter, ratePolicyFor } from "./rate-limiter.mjs";
+import { createRequestSignal } from "./request-lifecycle.mjs";
+import { streamTtsEvents } from "./tts/http-stream.mjs";
+import { createRuntimeTtsRegistry } from "./tts/pinned-runtime.mjs";
+import { SpeechSession } from "./tts/speech-session.mjs";
+import { WEB_TASK_ACTIONS } from "./web-task-policy.mjs";
+import { IntentShadowMonitor } from "./trust/intent-shadow-monitor.mjs";
+import { codexWorkerReady } from "./telegram/codex-runtime-readiness.mjs";
+import { OWNER_ACTION_KIND } from "./telegram/owner-action-plan.mjs";
+import { OwnerActionExecutor } from "./telegram/owner-action-executor.mjs";
+
+const execFileAsync = promisify(execFile);
+const ROOT = "/Users/hun/PrivateAI";
+const HOST = process.env.LOCAL_AI_CHAT_HOST ?? "127.0.0.1";
+const PORT = Number(process.env.LOCAL_AI_CHAT_PORT ?? "18791");
+const DEEP_UPSTREAM = "http://127.0.0.1:18790/v1/chat/completions";
+const FAST_UPSTREAM = "http://127.0.0.1:11434/api/chat";
+const FAST_MODEL = assertConversationModel(process.env.LOCAL_AI_FAST_MODEL ?? LOCAL_CONVERSATION_MODEL);
+const GROWTH_TRANSPORT = process.env.LOCAL_AI_GROWTH_TRANSPORT ?? "disabled";
+const INTENT_SHADOW_MODE = process.env.LOCAL_AI_INTENT_SHADOW ?? "disabled";
+const AUTH_PATH = `${ROOT}/data/secure-chat/auth.json`;
+const APPROVAL_PATH = `${ROOT}/data/secure-chat/approvals.json`;
+const PROACTIVE_PATH = `${ROOT}/data/secure-chat/proactive.json`;
+const GROWTH_ROOT = `${ROOT}/data/growth`;
+const INTENT_SHADOW_PATH = `${ROOT}/data/intent-shadow/metrics.json`;
+const LOG_DIR = `${ROOT}/logs/secure-chat`;
+const PUBLIC_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "public");
+const KEYCHAIN_SERVICE = "local.privateai.openwebui.proxy.token";
+const KEYCHAIN_ACCOUNT = "local-ai";
+const TELEGRAM_CONFIG_PATH = `${ROOT}/config/telegram-general.json`;
+const CODEX_BRIDGE_CONFIG_PATH = `${ROOT}/config/codex-bridge.json`;
+const CODEX_TASK_PATH = `${ROOT}/data/codex-bridge/tasks.json`;
+const CODEX_SOURCE_ROOT = `${ROOT}/app/secure-chat`;
+const TELEGRAM_CONFIG_SCRIPT = `${ROOT}/app/secure-chat/scripts/configure-telegram-general.mjs`;
+const CONFIRMED_MEMORY_PATH =
+  process.env.CONFIRMED_MEMORY_PATH ?? `${ROOT}/data/confirmed-memory/memory.json`;
+const MAX_BODY_BYTES = 256 * 1024;
+const rateLimiter = new FixedWindowRateLimiter();
+
+const STATIC_FILES = new Map([
+  ["/", ["index.html", "text/html; charset=utf-8"]],
+  ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+  ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
+  ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
+  ["/sw.js", ["sw.js", "text/javascript; charset=utf-8"]],
+  ["/icon.svg", ["icon.svg", "image/svg+xml"]],
+]);
+
+function securityHeaders(contentType) {
+  return {
+    "Content-Type": contentType,
+    "Cache-Control": contentType.startsWith("text/html") ? "no-store" : "public, max-age=300",
+    "Content-Security-Policy": "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; manifest-src 'self'; object-src 'none'; script-src 'self'; style-src 'self'",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  };
+}
+
+function json(response, status, value) {
+  response.writeHead(status, { ...securityHeaders("application/json; charset=utf-8"), "Cache-Control": "no-store" });
+  response.end(`${JSON.stringify(value)}\n`);
+}
+
+async function readBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("too_large"), { statusCode: 413 });
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function bearer(request) {
+  return /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "")?.[1] ?? "";
+}
+
+function originAllowed(request) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === request.headers.host;
+  } catch {
+    return false;
+  }
+}
+
+function hasScope(device, scope) {
+  return Array.isArray(device.scopes) && device.scopes.includes(scope);
+}
+
+function validateChat(body) {
+  if (!body || !Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > 60) {
+    throw Object.assign(new Error("invalid_messages"), { statusCode: 400 });
+  }
+  let characters = 0;
+  const messages = body.messages.map((message) => {
+    if (!message || !["user", "assistant"].includes(message.role) || typeof message.content !== "string") {
+      throw Object.assign(new Error("invalid_message"), { statusCode: 400 });
+    }
+    characters += message.content.length;
+    return { role: message.role, content: message.content.slice(0, 16_000) };
+  });
+  if (characters > 100_000) throw Object.assign(new Error("too_many_characters"), { statusCode: 413 });
+  const mode = body.mode ?? "auto";
+  if (!["auto", "fast", "deep"].includes(mode)) {
+    throw Object.assign(new Error("invalid_mode"), { statusCode: 400 });
+  }
+  return { messages, stream: body.stream === true, mode };
+}
+
+function beginEventStream(response, requestId) {
+  response.writeHead(200, {
+    ...securityHeaders("text/event-stream; charset=utf-8"),
+    "Cache-Control": "no-store, no-transform",
+    Connection: "keep-alive",
+    "X-Request-ID": requestId,
+  });
+  response.flushHeaders?.();
+}
+
+function sendEvent(response, event, value) {
+  if (response.writableEnded || response.destroyed) return;
+  response.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+}
+
+function finishStreamError(response, requestId, code, message) {
+  if (response.writableEnded || response.destroyed) return;
+  sendEvent(response, "error", { requestId, code, message });
+  sendEvent(response, "done", { requestId, ok: false });
+  response.end();
+}
+
+async function proxyToken() {
+  const result = await execFileAsync("/usr/bin/security", [
+    "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w",
+  ], { encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 });
+  return result.stdout.trim();
+}
+
+async function processJson(scriptPath, value, timeoutMs = 60_000) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn("/opt/homebrew/bin/node", [scriptPath], { shell: false, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(Object.assign(new Error("private_configuration_timeout"), { statusCode: 504 }));
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { if (stdout.length < 64 * 1024) stdout += chunk; });
+    child.stderr.on("data", (chunk) => { if (stderr.length < 64 * 1024) stderr += chunk; });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      if (code !== 0 || signal) {
+        reject(Object.assign(new Error("private_configuration_failed"), { statusCode: 502 }));
+        return;
+      }
+      try { resolve(JSON.parse(stdout.trim())); }
+      catch { reject(Object.assign(new Error("private_configuration_response_invalid"), { statusCode: 502 })); }
+    });
+    child.stdin.end(`${JSON.stringify(value)}\n`);
+  });
+}
+
+async function communicationStatus(codexTaskStore = null) {
+  let telegram = { configured: false, enabled: false, running: false, mode: "general_chat_only", botUsername: null };
+  try {
+    const configured = JSON.parse(await readFile(TELEGRAM_CONFIG_PATH, "utf8"));
+    const domain = `gui/${process.getuid()}`;
+    const service = await execFileAsync("/bin/launchctl", ["print", `${domain}/com.local.privateai.telegram-general`], {
+      encoding: "utf8", timeout: 5_000, maxBuffer: 128 * 1024,
+    }).then((result) => result.stdout, () => "");
+    telegram = {
+      configured: configured?.version === 1,
+      enabled: configured?.enabled === true,
+      running: /\bstate = running\b/.test(service),
+      mode: configured?.transport === "telegram_general_only" ? "general_chat_only" : "unknown",
+      botUsername: typeof configured?.botUsername === "string" ? configured.botUsername : null,
+    };
+  } catch (error) {
+    if (error.code !== "ENOENT") telegram = { ...telegram, status: "unavailable" };
+  }
+
+  let codexBridge = { configured: false, enabled: false, running: false, mode: "isolated_inspect_and_draft" };
+  try {
+    const configured = JSON.parse(await readFile(CODEX_BRIDGE_CONFIG_PATH, "utf8"));
+    const domain = `gui/${process.getuid()}`;
+    const service = await execFileAsync("/bin/launchctl", ["print", `${domain}/com.local.privateai.codex-worker`], {
+      encoding: "utf8", timeout: 5_000, maxBuffer: 128 * 1024,
+    }).then((result) => result.stdout, () => "");
+    const preflightReady = await codexWorkerReady();
+    const leaseReady = codexTaskStore ? await codexTaskStore.workerReady() : false;
+    codexBridge = {
+      configured: configured?.version === 1 && configured?.mode === "isolated_inspect_and_draft",
+      enabled: configured?.enabled === true,
+      running: /\bstate = running\b/.test(service) && preflightReady && leaseReady,
+      mode: "isolated_inspect_and_draft",
+    };
+  } catch (error) {
+    if (error.code !== "ENOENT") codexBridge = { ...codexBridge, status: "unavailable" };
+  }
+
+  let browser = { profile: "shared_chrome_tabs", connected: false, sharedTabs: 0, services: [] };
+  try {
+    const client = new SharedChromeClient();
+    const status = await client.status();
+    const tabs = status.connected ? await client.tabs() : [];
+    browser = {
+      profile: "shared_chrome_tabs",
+      connected: status.connected,
+      sharedTabs: tabs.length,
+      services: [...new Set(tabs.map((tab) => tab.service).filter(Boolean))],
+    };
+  } catch {
+    // An unpaired extension is the normal initial state.
+  }
+  return {
+    telegram,
+    codexBridge,
+    browser,
+    webTasks: {
+      policy: "default_deny_v1",
+      stage: browser.connected && browser.sharedTabs > 0 ? "live_ui_validation_required" : "shared_tabs_required",
+      preparedActions: WEB_TASK_ACTIONS,
+      blockedFinalActions: ["checkout", "purchase", "payment", "mail_send", "mail_delete", "mail_archive"],
+    },
+    privilegedIngress: "local_owner_app_only",
+    blockedInTelegram: ["authenticated_web", "email", "files", "home_control", "purchases", "credentials"],
+  };
+}
+
+async function audit(entry) {
+  await mkdir(LOG_DIR, { recursive: true, mode: 0o700 });
+  const path = `${LOG_DIR}/${new Date().toISOString().slice(0, 10)}.jsonl`;
+  await appendFile(path, `${JSON.stringify({ timestamp: new Date().toISOString(), ...entry })}\n`, { mode: 0o600 });
+}
+
+async function forwardDeepChat(request, response, device, payload, requestId) {
+  let token;
+  const startedAt = Date.now();
+  try {
+    if (payload.stream) {
+      beginEventStream(response, requestId);
+      sendEvent(response, "status", { requestId, phase: "accepted", mode: "deep", label: "요청을 안전하게 받았습니다" });
+      sendEvent(response, "status", { requestId, phase: "routing", mode: "deep", label: "깊은 작업 경로로 연결하는 중" });
+      sendEvent(response, "status", { requestId, phase: "thinking", mode: "deep", label: "생각하고 작업을 처리하는 중" });
+    }
+    token = await proxyToken();
+    const { mode: _mode, ...upstreamPayload } = payload;
+    const upstream = await fetch(DEEP_UPSTREAM, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-OpenWebUI-Chat-Id": `secure-chat-${device.id}`,
+      },
+      body: JSON.stringify({ model: "openclaw/default", ...upstreamPayload }),
+      signal: createRequestSignal(request, response),
+    });
+
+    if (!upstream.ok || !upstream.body) {
+      if (payload.stream) {
+        sendEvent(response, "error", { requestId, code: "deep_model_unavailable", message: "깊은 생각 경로에서 응답을 받지 못했습니다." });
+        sendEvent(response, "done", { requestId, ok: false });
+        response.end();
+      } else {
+        json(response, upstream.status, { error: "deep_model_unavailable" });
+      }
+    } else if (payload.stream) {
+      try {
+        for await (const chunk of verifyOpenAIEventStream(upstream.body)) response.write(chunk);
+        sendEvent(response, "done", { requestId, ok: true });
+        response.end();
+      } catch (error) {
+        if (error?.name !== "AbortError") {
+          finishStreamError(response, requestId, "deep_stream_interrupted", "깊은 작업 응답이 중간에 끊겼습니다. 다시 시도할 수 있습니다.");
+        }
+      }
+    } else {
+      response.writeHead(upstream.status, {
+        ...securityHeaders(upstream.headers.get("content-type") ?? "application/json"),
+        "Cache-Control": "no-store",
+      });
+      for await (const chunk of upstream.body) response.write(chunk);
+      response.end();
+    }
+    await audit({ event: "chat", mode: "deep", deviceHash: createHash("sha256").update(device.id).digest("hex"), status: upstream.status, durationMs: Date.now() - startedAt });
+  } finally {
+    token = undefined;
+  }
+}
+
+async function forwardFastChat(request, response, device, payload, requestId, memoryStore) {
+  const startedAt = Date.now();
+  if (payload.stream) {
+    beginEventStream(response, requestId);
+    sendEvent(response, "status", { requestId, phase: "accepted", mode: "fast", label: "요청을 안전하게 받았습니다" });
+    sendEvent(response, "status", { requestId, phase: "routing", mode: "fast", label: "빠른 로컬 모델로 연결하는 중" });
+    sendEvent(response, "status", { requestId, phase: "loading", mode: "fast", label: "로컬 모델을 준비하는 중" });
+  }
+  const latestUser = [...payload.messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  const memoryBlock = memoryStore
+    ? await memoryStore.activeContextBlock(latestUser, { forExternal: false })
+    : "";
+  const messages = withMemorySystemMessage(payload.messages, memoryBlock);
+  const upstream = await fetch(FAST_UPSTREAM, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: FAST_MODEL,
+      messages,
+      stream: payload.stream,
+      think: false,
+      keep_alive: "10m",
+      options: { num_ctx: 16_384 },
+    }),
+    signal: createRequestSignal(request, response),
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    await audit({ event: "chat", mode: "fast", deviceHash: createHash("sha256").update(device.id).digest("hex"), status: upstream.status, durationMs: Date.now() - startedAt });
+    if (payload.stream) {
+      sendEvent(response, "error", { requestId, code: "local_model_unavailable", message: "로컬 모델을 시작하지 못했습니다." });
+      sendEvent(response, "done", { requestId, ok: false });
+      return response.end();
+    }
+    return json(response, 502, { error: "local_model_unavailable" });
+  }
+
+  if (payload.stream) {
+    sendEvent(response, "status", { requestId, phase: "generating", mode: "fast", label: "답변을 작성하는 중" });
+    try {
+      for await (const chunk of ollamaStreamToSSE(upstream.body, requestId)) response.write(chunk);
+      sendEvent(response, "done", { requestId, ok: true });
+      response.end();
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        finishStreamError(response, requestId, "local_stream_interrupted", "로컬 모델 응답이 중간에 끊겼습니다. 다시 시도할 수 있습니다.");
+      }
+    }
+  } else {
+    json(response, 200, toOpenAICompletion(await upstream.json(), FAST_MODEL));
+  }
+  await audit({ event: "chat", mode: "fast", deviceHash: createHash("sha256").update(device.id).digest("hex"), status: 200, durationMs: Date.now() - startedAt });
+}
+
+async function forwardChat(request, response, device, body, intentShadow = null, memoryStore = null) {
+  const payload = validateChat(body);
+  const requestedMode = payload.mode;
+  const mode = resolveChatMode(requestedMode, payload.messages);
+  assertChatModeAccess(mode, device);
+  const requestId = randomUUID();
+  payload.mode = mode;
+  payload.messages = trimChatContext(payload.messages, mode);
+  if (intentShadow && mode === "deep") {
+    const latest = [...payload.messages].reverse().find((message) => message.role === "user")?.content;
+    if (latest) {
+      void intentShadow.observe({ utterance: latest, ingress: "local_owner_app" }).catch(() => {
+        void audit({ event: "intent_shadow_failed", errorClass: "IntentShadowError" }).catch(() => {});
+      });
+    }
+  }
+  if (mode === "deep") return await forwardDeepChat(request, response, device, payload, requestId);
+  return await forwardFastChat(request, response, device, payload, requestId, memoryStore);
+}
+
+async function main() {
+  if (HOST !== "127.0.0.1") throw new Error("승인 전에는 secure chat을 loopback 외 주소에 바인딩할 수 없습니다.");
+  if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) throw new Error("포트 설정이 올바르지 않습니다.");
+  if (!["disabled", "enabled"].includes(INTENT_SHADOW_MODE)) throw new Error("지원하지 않는 intent shadow 설정입니다.");
+  const authStore = new AuthStore(AUTH_PATH);
+  const approvalStore = new ApprovalStore(APPROVAL_PATH);
+  const codexTaskStore = new CodexTaskStore(CODEX_TASK_PATH);
+  const ownerCodexTasks = new OwnerCodexTaskCoordinator({
+    taskStore: codexTaskStore,
+    approvalStore,
+    sourceRoot: CODEX_SOURCE_ROOT,
+  });
+  const proactiveStore = new ProactiveStore(PROACTIVE_PATH);
+  const proposalStore = new GrowthProposalStore(`${GROWTH_ROOT}/proposals`);
+  if (!["disabled", "openclaw"].includes(GROWTH_TRANSPORT)) throw new Error("지원하지 않는 성장 전송 설정입니다.");
+  const growth = new GrowthCoordinator({
+    rootPath: GROWTH_ROOT,
+    approvalStore,
+    proposalStore,
+    dispatchAdapter: GROWTH_TRANSPORT === "openclaw" ? createOpenClawGrowthDispatchAdapter() : null,
+  });
+  const intentShadow = INTENT_SHADOW_MODE === "enabled" ? new IntentShadowMonitor(INTENT_SHADOW_PATH) : null;
+  const ttsRegistry = await createRuntimeTtsRegistry();
+  const confirmedMemory = await new ConfirmedMemoryStore(CONFIRMED_MEMORY_PATH).initialize();
+  const ownerActionExecutor = new OwnerActionExecutor({
+    approvalStore,
+    proactiveStore,
+    audit: async (entry) => {
+      await audit(entry).catch(() => {});
+    },
+  });
+  await authStore.initialize();
+  await approvalStore.initialize();
+  await codexTaskStore.initialize();
+  await ownerCodexTasks.reconcileAll();
+  await ownerCodexTasks.pruneRetention();
+  await proactiveStore.initialize();
+  await growth.initialize();
+  await intentShadow?.initialize();
+
+  const server = http.createServer(async (request, response) => {
+    try {
+      if (!originAllowed(request)) return json(response, 403, { error: "origin_denied" });
+      const url = new URL(request.url, `http://${request.headers.host ?? "127.0.0.1"}`);
+      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, exposure: "loopback_only" });
+
+      if (request.method === "GET" && STATIC_FILES.has(url.pathname)) {
+        const [filename, contentType] = STATIC_FILES.get(url.pathname);
+        const content = await readFile(join(PUBLIC_DIR, filename));
+        response.writeHead(200, securityHeaders(contentType));
+        return response.end(content);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/pair") {
+        const body = await readBody(request);
+        if (typeof body?.secret !== "string" || typeof body?.deviceName !== "string") return json(response, 400, { error: "invalid_pairing" });
+        const claimed = await authStore.claimPairing(body.secret, body.deviceName);
+        if (!claimed) return json(response, 401, { error: "pairing_expired_or_used" });
+        await audit({ event: "device_paired", deviceHash: createHash("sha256").update(claimed.deviceId).digest("hex") });
+        return json(response, 201, claimed);
+      }
+
+      const device = await authStore.authenticate(bearer(request));
+      if (!device) return json(response, 401, { error: "device_authentication_required" });
+      if (!rateLimiter.allow(device.id, ratePolicyFor(request.method, url.pathname))) {
+        return json(response, 429, { error: "rate_limit" });
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/status") {
+        if (!hasScope(device, "status")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, {
+          ok: true,
+          deviceName: device.name,
+          deviceRole: device.role,
+          deviceScopes: device.scopes,
+          fastModel: FAST_MODEL,
+          deepModel: "openclaw/default",
+          privacy: "direct_to_mac",
+          approvals: "p256_device_signature_v1",
+          activeMemoryCount: await confirmedMemory.countActive(),
+          intentShadow: intentShadow ? { enabled: true, metrics: await intentShadow.status() } : { enabled: false },
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/api/memory") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const [active, candidates] = await Promise.all([
+          confirmedMemory.listActive(),
+          confirmedMemory.listCandidates(),
+        ]);
+        return json(response, 200, {
+          active,
+          candidates,
+          count: active.length,
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/api/memory/propose") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        try {
+          const body = await readBody(request);
+          const item = await confirmedMemory.propose(body?.text);
+          await audit({
+            event: "memory_proposed",
+            deviceHash: createHash("sha256").update(device.id).digest("hex"),
+            memoryHash: createHash("sha256").update(item.id).digest("hex"),
+          });
+          return json(response, 200, {
+            ...item,
+            message: "후보로 저장됨. 확인하면 장기기억에 들어갑니다.",
+          });
+        } catch (error) {
+          if (error instanceof ConfirmedMemoryStoreError) {
+            return json(response, error.statusCode, { error: error.message });
+          }
+          throw error;
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/api/memory/confirm") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        try {
+          const body = await readBody(request);
+          const item = await confirmedMemory.confirm(body?.id, {
+            shareExternal: Boolean(body?.share_external),
+          });
+          await audit({
+            event: "memory_confirmed",
+            deviceHash: createHash("sha256").update(device.id).digest("hex"),
+            memoryHash: createHash("sha256").update(item.id).digest("hex"),
+          });
+          return json(response, 200, {
+            ...item,
+            active_memory_count: await confirmedMemory.countActive(),
+          });
+        } catch (error) {
+          if (error instanceof ConfirmedMemoryStoreError) {
+            return json(response, error.statusCode, { error: error.message });
+          }
+          throw error;
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/api/codex/approval-key") {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const body = await readBody(request);
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).join(",") !== "publicKeyDER") {
+          return json(response, 400, { error: "invalid_codex_approval_key_request" });
+        }
+        const result = await ownerCodexTasks.registerApprovalKey(device.id, body?.publicKeyDER);
+        await audit({
+          event: "codex_approval_key_registered",
+          deviceHash: createHash("sha256").update(device.id).digest("hex"),
+          created: result.created,
+        });
+        return json(response, result.created ? 201 : 200, result);
+      }
+      if (request.method === "POST" && url.pathname === "/api/codex/tasks") {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const body = await readBody(request);
+        const replayed = await ownerCodexTasks.replay(device.id, body);
+        if (replayed) {
+          await audit({
+            event: "codex_owner_task_deduplicated",
+            taskHash: createHash("sha256").update(replayed.task.id).digest("hex"),
+            planSha256: replayed.task.planSha256,
+            deviceHash: createHash("sha256").update(device.id).digest("hex"),
+          });
+          return json(response, 202, { task: replayed.task, approval: replayed.approval });
+        }
+        if (!await codexWorkerReady() || !await codexTaskStore.workerReady()) return json(response, 503, { error: "codex_bridge_unavailable" });
+        const prepared = await ownerCodexTasks.prepare(device.id, body);
+        await audit({
+          event: prepared.created ? "codex_owner_task_prepared" : "codex_owner_task_deduplicated",
+          taskHash: createHash("sha256").update(prepared.task.id).digest("hex"),
+          planSha256: prepared.task.planSha256,
+          deviceHash: createHash("sha256").update(device.id).digest("hex"),
+        });
+        return json(response, 202, { task: prepared.task, approval: prepared.approval });
+      }
+      if (request.method === "GET" && url.pathname === "/api/codex/tasks") {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const queryKeys = [...url.searchParams.keys()];
+        if (queryKeys.some((key) => key !== "limit") || url.searchParams.getAll("limit").length > 1) {
+          return json(response, 400, { error: "invalid_codex_task_query" });
+        }
+        const rawLimit = url.searchParams.get("limit");
+        const limit = rawLimit === null ? 20 : Number(rawLimit);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) return json(response, 400, { error: "invalid_codex_task_query" });
+        return json(response, 200, { tasks: await ownerCodexTasks.list(device.id, { limit }) });
+      }
+      const codexTaskMatch = /^\/api\/codex\/tasks\/([0-9a-f-]{36})$/iu.exec(url.pathname);
+      if (request.method === "GET" && codexTaskMatch) {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const result = await ownerCodexTasks.get(device.id, codexTaskMatch[1]);
+        if (!result) return json(response, 404, { error: "codex_task_not_found" });
+        return json(response, 200, result);
+      }
+      const codexApprovalDecisionMatch = /^\/api\/codex\/approvals\/([A-Za-z0-9_-]{16,128})\/decision$/.exec(url.pathname);
+      if (request.method === "POST" && codexApprovalDecisionMatch) {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const body = await readBody(request);
+        if (
+          !body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).sort().join(",") !== "decision,signatureDER"
+        ) return json(response, 400, { error: "invalid_codex_approval_decision" });
+        const result = await ownerCodexTasks.decide(
+          device.id,
+          codexApprovalDecisionMatch[1],
+          body?.decision,
+          body?.signatureDER,
+        );
+        await audit({
+          event: "codex_owner_task_decided",
+          taskHash: createHash("sha256").update(result.id).digest("hex"),
+          planSha256: result.task.planSha256,
+          decision: result.status,
+          deviceHash: createHash("sha256").update(device.id).digest("hex"),
+        });
+        return json(response, 200, result);
+      }
+      if (request.method === "POST" && url.pathname === "/api/approval-key") {
+        if (!hasScope(device, "approvals")) return json(response, 403, { error: "device_scope_required" });
+        const body = await readBody(request);
+        const result = await approvalStore.registerDeviceKey(device.id, body?.publicKeyDER);
+        await audit({
+          event: "approval_key_registered",
+          deviceHash: createHash("sha256").update(device.id).digest("hex"),
+          created: result.created,
+        });
+        return json(response, result.created ? 201 : 200, result);
+      }
+      if (request.method === "GET" && url.pathname === "/api/approvals") {
+        if (!hasScope(device, "approvals")) return json(response, 403, { error: "device_scope_required" });
+        const requests = (await approvalStore.listPending()).filter((entry) => entry.kind !== "codex.execute");
+        return json(response, 200, { requests });
+      }
+      const approvalDecisionMatch = /^\/api\/approvals\/([A-Za-z0-9_-]{16,128})\/decision$/.exec(url.pathname);
+      if (request.method === "POST" && approvalDecisionMatch) {
+        if (!hasScope(device, "approvals")) return json(response, 403, { error: "device_scope_required" });
+        if (await ownerCodexTasks.approvalKind(approvalDecisionMatch[1]) === "codex.execute") {
+          return json(response, 403, { error: "codex_dedicated_approval_required" });
+        }
+        const body = await readBody(request);
+        const result = await approvalStore.decide({
+          id: approvalDecisionMatch[1],
+          deviceId: device.id,
+          decision: body?.decision,
+          signatureDER: body?.signatureDER,
+        });
+        await audit({
+          event: "approval_decided",
+          requestHash: createHash("sha256").update(result.id).digest("hex"),
+          payloadSha256: result.payloadSha256,
+          decision: result.status,
+          deviceHash: createHash("sha256").update(device.id).digest("hex"),
+        });
+        json(response, 200, result);
+        if (result.status === "approved" && result.kind === "gpt.consult" && GROWTH_TRANSPORT === "openclaw") {
+          setImmediate(async () => {
+            try {
+              const dispatched = await growth.dispatchApprovedRequest(result.id);
+              if (!dispatched) return;
+              const proposalContent = proposalContentFromAdvice(parseStructuredAdvice(dispatched.externalResponse));
+              await growth.quarantineAdvice({
+                requestId: result.id,
+                correlationId: dispatched.receipt.correlationId,
+                proposalContent,
+              });
+              await audit({
+                event: "growth_advice_quarantined",
+                requestHash: createHash("sha256").update(result.id).digest("hex"),
+                payloadSha256: result.payloadSha256,
+              });
+            } catch (error) {
+              await audit({
+                event: "growth_dispatch_failed",
+                requestHash: createHash("sha256").update(result.id).digest("hex"),
+                errorClass: error?.name ?? "Error",
+              });
+            }
+          });
+        }
+        if (result.status === "approved" && result.kind === OWNER_ACTION_KIND) {
+          setImmediate(async () => {
+            try {
+              await ownerActionExecutor.executeApproved(result.id, result.payloadSha256);
+            } catch (error) {
+              await audit({
+                event: "owner_action_execute_failed",
+                requestHash: createHash("sha256").update(result.id).digest("hex"),
+                errorClass: error?.name ?? "Error",
+              });
+            }
+          });
+        }
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/tts/catalog") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, ttsRegistry.catalog());
+      }
+      if (request.method === "GET" && url.pathname === "/api/communication/status") {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        return json(response, 200, await communicationStatus(codexTaskStore));
+      }
+      if (request.method === "POST" && url.pathname === "/api/communication/telegram") {
+        if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const body = await readBody(request);
+        if (typeof body?.botToken !== "string" || !/^[0-9]{5,20}:[A-Za-z0-9_-]{20,}$/.test(body.botToken)) {
+          return json(response, 400, { error: "invalid_telegram_token" });
+        }
+        if (body.ownerId !== undefined && !/^[1-9][0-9]{5,19}$/.test(String(body.ownerId))) {
+          return json(response, 400, { error: "invalid_telegram_owner" });
+        }
+        const configured = await processJson(TELEGRAM_CONFIG_SCRIPT, {
+          botToken: body.botToken,
+          ...(body.ownerId === undefined ? {} : { ownerId: String(body.ownerId) }),
+        });
+        await audit({ event: "telegram_general_configured", mode: "general_chat_only", deviceHash: createHash("sha256").update(device.id).digest("hex") });
+        return json(response, 200, configured);
+      }
+      if (request.method === "GET" && url.pathname === "/api/growth/status") {
+        if (!hasScope(device, "approvals")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, {
+          ...(await growth.status()),
+          dlpPolicy: DLP_POLICY_VERSION,
+          blockedCategories: "personal_and_unclassified",
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/api/growth/proposals") {
+        if (!hasScope(device, "approvals")) return json(response, 403, { error: "device_scope_required" });
+        const records = await proposalStore.listLatest({ limit: 50 });
+        return json(response, 200, {
+          proposals: records.map((record) => ({
+            id: record.id,
+            revision: record.revision,
+            updatedAt: record.updatedAt,
+            status: record.lifecycle.status,
+            title: record.content.title,
+            summary: record.content.summary,
+            scopes: record.content.scopes,
+            trust: record.trust,
+          })),
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/api/tts/stream") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        const body = await readBody(request);
+        const deviceHash = createHash("sha256").update(device.id).digest("hex");
+        const session = new SpeechSession({
+          registry: ttsRegistry,
+          auditSink: (entry) => audit({ ...entry, deviceHash }),
+        });
+        response.writeHead(200, {
+          ...securityHeaders("application/x-ndjson; charset=utf-8"),
+          "Cache-Control": "no-store, no-transform",
+          "X-Content-Type-Options": "nosniff",
+        });
+        const signal = createRequestSignal(request, response, 120_000);
+        await streamTtsEvents(response, session.stream(body?.text, {
+          providerId: body?.providerId,
+          voiceId: body?.voiceId,
+          style: body?.style,
+          allowClientFallback: body?.allowClientFallback !== false,
+          signal,
+        }), { signal });
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/inbox") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, { messages: await proactiveStore.consumePending() });
+      }
+      if (request.method === "POST" && url.pathname === "/api/chat") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return await forwardChat(request, response, device, await readBody(request), intentShadow, confirmedMemory);
+      }
+      return json(response, 404, { error: "not_found" });
+    } catch (error) {
+      if (!response.headersSent) json(response, error?.statusCode ?? (error instanceof SyntaxError ? 400 : 502), { error: "request_failed" });
+      else response.end();
+      await audit({ event: "request_failed", errorClass: error?.name ?? "Error" });
+    }
+  });
+
+  let codexReconcileRunning = false;
+  const codexReconcileTimer = setInterval(() => {
+    if (codexReconcileRunning) return;
+    codexReconcileRunning = true;
+    void ownerCodexTasks.reconcileAll()
+      .then(() => ownerCodexTasks.pruneRetention())
+      .catch(() => audit({ event: "codex_owner_task_reconcile_failed", errorClass: "CodexReconcileError" }))
+      .finally(() => { codexReconcileRunning = false; });
+  }, 30_000);
+  codexReconcileTimer.unref();
+  server.once("close", () => clearInterval(codexReconcileTimer));
+
+  server.listen(PORT, HOST, () => console.log(`Local AI Secure Chat listening on http://${HOST}:${PORT}`));
+}
+
+main().catch((error) => {
+  console.error(`오류: ${error.message}`);
+  process.exitCode = 1;
+});

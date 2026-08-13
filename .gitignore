@@ -1,0 +1,50 @@
+# Canonical personal archives and visual evidence stay outside source history.
+/WINDOWS_CODEX_FULL_EXPORT_2026-08-04/
+/artifacts/
+
+# 별도 저장소·비밀·대용량·런타임 산출물은 Local AI baseline에서 제외한다.
+.private/
+seonghun-secret-space/
+mac-backups/
+tmp/
+output/
+home-assistant/
+diol-os/
+research/
+mac-help/
+UPDD_*.command
+
+# macOS and IDE-local state.
+.DS_Store
+**/xcuserdata/
+**/*.xcuserstate
+DerivedData/
+.build/
+build/
+
+# Reinstallable dependencies and generated reports.
+node_modules/
+coverage/
+.venv/
+__pycache__/
+
+# Credentials, private configuration, runtime state, and logs.
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.wal
+*.shm
+*.log
+*.pid
+*.sock
+
+# Secret-bearing platform files must never enter source history.
+auth.json
+approvals.json
+.sandbox-secrets/
+**/memory.json
+**/confirmed-memory/

@@ -1,0 +1,15 @@
+{
+  "name": "local-ai-secure-chat",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "pair": "node scripts/create-pairing.mjs",
+    "proactive": "node scripts/send-proactive.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

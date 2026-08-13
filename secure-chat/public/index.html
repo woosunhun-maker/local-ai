@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="theme-color" content="#10131a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Local AI</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="identity">
+          <div class="avatar" aria-hidden="true">AI</div>
+          <div><h1>나의 Local AI</h1><p id="connection-label">연결 확인 중</p></div>
+        </div>
+        <span id="status-dot" class="status-dot" aria-label="연결 상태"></span>
+      </header>
+
+      <section id="pairing-view" class="center-card" hidden>
+        <h2>이 iPhone을 연결하세요</h2>
+        <p>Mac에서 만든 5분짜리 페어링 링크로 열면 이 기기만 등록됩니다.</p>
+        <p class="privacy-note">대화는 Telegram이나 Kakao를 거치지 않고 Mac으로 직접 전달됩니다.</p>
+      </section>
+
+      <section id="chat-view" class="chat-view" hidden>
+        <div id="messages" class="messages" aria-live="polite">
+          <article class="message assistant"><p>안녕하세요. Mac에서 실행 중인 로컬 AI입니다.</p></article>
+        </div>
+        <form id="composer" class="composer">
+          <label class="sr-only" for="prompt">메시지</label>
+          <textarea id="prompt" rows="1" maxlength="16000" placeholder="메시지를 입력하세요" required></textarea>
+          <button id="send" type="submit" aria-label="보내기">↑</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
