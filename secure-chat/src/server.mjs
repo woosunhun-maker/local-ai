@@ -26,12 +26,14 @@ import {
   ConfirmedMemoryStoreError,
   withMemorySystemMessage,
 } from "./confirmed-memory-store.mjs";
-import { assertConversationModel, LOCAL_CONVERSATION_MODEL } from "./local-model-routing.mjs";
+import { assertConversationModel, LOCAL_CONVERSATION_MODEL, LOCAL_EFFECT_PLANNING_MODEL } from "./local-model-routing.mjs";
 import { ollamaStreamToSSE, toOpenAICompletion } from "./ollama-protocol.mjs";
 import { verifyOpenAIEventStream } from "./openai-stream.mjs";
 import { ProactiveStore } from "./proactive-store.mjs";
 import { FixedWindowRateLimiter, ratePolicyFor } from "./rate-limiter.mjs";
 import { createRequestSignal } from "./request-lifecycle.mjs";
+import { createStructuredEventLog } from "./structured-event-log.mjs";
+import { collectSystemRuntimeHealth } from "./system/runtime-health.mjs";
 import { streamTtsEvents } from "./tts/http-stream.mjs";
 import { createRuntimeTtsRegistry } from "./tts/pinned-runtime.mjs";
 import { SpeechSession } from "./tts/speech-session.mjs";
@@ -56,7 +58,9 @@ const PROACTIVE_PATH = `${ROOT}/data/secure-chat/proactive.json`;
 const GROWTH_ROOT = `${ROOT}/data/growth`;
 const INTENT_SHADOW_PATH = `${ROOT}/data/intent-shadow/metrics.json`;
 const LOG_DIR = `${ROOT}/logs/secure-chat`;
+const STRUCTURED_LOG_DIR = `${ROOT}/logs/structured`;
 const PUBLIC_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "public");
+const structuredLog = createStructuredEventLog({ logDir: STRUCTURED_LOG_DIR });
 const KEYCHAIN_SERVICE = "local.privateai.openwebui.proxy.token";
 const KEYCHAIN_ACCOUNT = "local-ai";
 const TELEGRAM_CONFIG_PATH = `${ROOT}/config/telegram-general.json`;
@@ -288,6 +292,12 @@ async function forwardDeepChat(request, response, device, payload, requestId) {
       sendEvent(response, "status", { requestId, phase: "routing", mode: "deep", label: "깊은 작업 경로로 연결하는 중" });
       sendEvent(response, "status", { requestId, phase: "thinking", mode: "deep", label: "생각하고 작업을 처리하는 중" });
     }
+    await structuredLog.emit("model_invoked", {
+      correlationId: requestId,
+      route: "deep",
+      model: "openclaw/default",
+      ingress: "secure_chat",
+    }).catch(() => {});
     token = await proxyToken();
     const { mode: _mode, ...upstreamPayload } = payload;
     const upstream = await fetch(DEEP_UPSTREAM, {
@@ -341,6 +351,12 @@ async function forwardFastChat(request, response, device, payload, requestId, me
     sendEvent(response, "status", { requestId, phase: "routing", mode: "fast", label: "빠른 로컬 모델로 연결하는 중" });
     sendEvent(response, "status", { requestId, phase: "loading", mode: "fast", label: "로컬 모델을 준비하는 중" });
   }
+  await structuredLog.emit("model_invoked", {
+    correlationId: requestId,
+    route: "fast",
+    model: FAST_MODEL,
+    ingress: "secure_chat",
+  }).catch(() => {});
   const latestUser = [...payload.messages].reverse().find((message) => message.role === "user")?.content ?? "";
   const memoryBlock = memoryStore
     ? await memoryStore.activeContextBlock(latestUser, { forExternal: false })
@@ -395,6 +411,17 @@ async function forwardChat(request, response, device, body, intentShadow = null,
   const requestId = randomUUID();
   payload.mode = mode;
   payload.messages = trimChatContext(payload.messages, mode);
+  await structuredLog.emit("request_received", {
+    correlationId: requestId,
+    ingress: "secure_chat",
+    requested_mode: typeof requestedMode === "string" ? requestedMode : "auto",
+  }).catch(() => {});
+  await structuredLog.emit("router_selected", {
+    correlationId: requestId,
+    mode,
+    conversation_model: FAST_MODEL,
+    planner_model: LOCAL_EFFECT_PLANNING_MODEL,
+  }).catch(() => {});
   if (intentShadow && mode === "deep") {
     const latest = [...payload.messages].reverse().find((message) => message.role === "user")?.content;
     if (latest) {
@@ -403,8 +430,24 @@ async function forwardChat(request, response, device, body, intentShadow = null,
       });
     }
   }
-  if (mode === "deep") return await forwardDeepChat(request, response, device, payload, requestId);
-  return await forwardFastChat(request, response, device, payload, requestId, memoryStore);
+  try {
+    if (mode === "deep") {
+      await forwardDeepChat(request, response, device, payload, requestId);
+    } else {
+      await forwardFastChat(request, response, device, payload, requestId, memoryStore);
+    }
+    await structuredLog.emit("task_completed", {
+      correlationId: requestId,
+      mode,
+    }).catch(() => {});
+  } catch (error) {
+    await structuredLog.emit("task_failed", {
+      correlationId: requestId,
+      mode,
+      error_class: error?.name ?? "Error",
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 async function main() {
@@ -489,6 +532,26 @@ async function main() {
           activeMemoryCount: await confirmedMemory.countActive(),
           intentShadow: intentShadow ? { enabled: true, metrics: await intentShadow.status() } : { enabled: false },
         });
+      }
+      if (request.method === "GET" && url.pathname === "/api/system/status") {
+        if (!hasScope(device, "status") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        const ttsCatalog = ttsRegistry.catalog();
+        const runtime = await collectSystemRuntimeHealth({
+          ttsCatalog: {
+            providers: (ttsCatalog.providers ?? []).map((provider) => ({
+              id: provider.id,
+              state: provider.availability?.state ?? "unknown",
+            })),
+          },
+        });
+        await structuredLog.emit("verification_completed", {
+          correlationId: structuredLog.correlationId(),
+          ingress: "system_status",
+          overall: runtime.overall,
+        }).catch(() => {});
+        return json(response, 200, runtime);
       }
       if (request.method === "GET" && url.pathname === "/api/memory") {
         if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });

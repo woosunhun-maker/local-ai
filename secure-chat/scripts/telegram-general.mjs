@@ -13,6 +13,7 @@ import { TelegramGeneralChatService } from "../src/telegram/general-chat-service
 import { OwnerActionBridge, notifyOwnerOfActionApproval } from "../src/telegram/owner-action-bridge.mjs";
 import { chooseOwnerGeneration, normalizeConfiguredTelegramPrincipal } from "../src/telegram/principal.mjs";
 import { telegramClient } from "../src/telegram/telegram-client.mjs";
+import { createStructuredEventLog } from "../src/structured-event-log.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = "/Users/hun/PrivateAI";
@@ -162,6 +163,7 @@ async function main() {
     client,
     codexTasks,
     ownerActionBridge,
+    structuredLog: createStructuredEventLog({ logDir: `${ROOT}/logs/structured` }),
   });
   let state = await readState();
   let consecutiveErrors = 0;

@@ -29,4 +29,5 @@
 
 ## Git
 
-- 상위 `/Users/hun/Documents/로컬ai` 저장소는 아직 커밋이 없다. 사용자가 요청하기 전에는 초기화·대량 add·커밋하지 않는다.
+- 상위 `/Users/hun/Documents/로컬ai` 저장소에 Local AI baseline이 있다. 사용자가 요청하기 전에는 대량 add·커밋하지 않는다.
+- 비밀·런타임 데이터(`/Users/hun/PrivateAI`)는 커밋하지 않는다.

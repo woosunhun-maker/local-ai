@@ -7,6 +7,8 @@ import { inspectTelegramCodexCommand } from "./codex-command-policy.mjs";
 import { OwnerActionBridge } from "./owner-action-bridge.mjs";
 import { inspectTelegramMessage } from "./policy.mjs";
 import { normalizeTaskPrincipal } from "./principal.mjs";
+import { createStructuredEventLog, newCorrelationId } from "../structured-event-log.mjs";
+import { LOCAL_CONVERSATION_MODEL } from "../local-model-routing.mjs";
 
 const CODEX_HELP = [
   "Telegram에서는 Codex 실행 작업을 접수하지 않습니다.",
@@ -37,6 +39,7 @@ export class TelegramGeneralChatService {
     codexTasks = null,
     runtimeStatus = collectLocalRuntimeStatus,
     ownerActionBridge = null,
+    structuredLog = null,
   } = {}) {
     const principal = normalizeTaskPrincipal({ ownerId, chatId, ownerGeneration }, "invalid_telegram");
     if (!client || typeof client.sendText !== "function") throw new Error("invalid_telegram_client");
@@ -53,10 +56,17 @@ export class TelegramGeneralChatService {
       throw new Error("invalid_owner_action_bridge");
     }
     this.ownerActionBridge = ownerActionBridge;
+    this.structuredLog = structuredLog;
+  }
+
+  async #emit(event, fields) {
+    if (!this.structuredLog?.emit) return;
+    await this.structuredLog.emit(event, fields).catch(() => {});
   }
 
   async handleUpdate(update) {
     const message = update?.message;
+    const correlationId = newCorrelationId();
     const codexDecision = inspectTelegramCodexCommand(message, this.ownerId);
     const chatId = message?.chat?.id;
     if (codexDecision.matched) {
@@ -117,14 +127,42 @@ export class TelegramGeneralChatService {
       return Object.freeze({ outcome: "blocked", reason: decision.reason });
     }
 
+    await this.#emit("request_received", { correlationId, ingress: "telegram" });
+    await this.#emit("router_selected", {
+      correlationId,
+      mode: "fast",
+      conversation_model: LOCAL_CONVERSATION_MODEL,
+    });
+    await this.#emit("model_invoked", {
+      correlationId,
+      route: "telegram_general",
+      model: LOCAL_CONVERSATION_MODEL,
+      ingress: "telegram",
+    });
+
     const previous = this.context.get(this.ownerId);
     const prompt = [...previous, { role: "user", content: decision.text }];
-    const answer = await this.ask(prompt);
-    if (typeof answer !== "string" || !answer.trim() || answer.length > 8_000) throw new Error("invalid_local_model_response");
-    const normalizedAnswer = answer.trim();
-    this.context.append(this.ownerId, "user", decision.text);
-    this.context.append(this.ownerId, "assistant", normalizedAnswer);
-    await this.client.sendText(chatId, normalizedAnswer);
-    return Object.freeze({ outcome: "replied", reason: "ordinary_conversation" });
+    try {
+      const answer = await this.ask(prompt);
+      if (typeof answer !== "string" || !answer.trim() || answer.length > 8_000) throw new Error("invalid_local_model_response");
+      const normalizedAnswer = answer.trim();
+      this.context.append(this.ownerId, "user", decision.text);
+      this.context.append(this.ownerId, "assistant", normalizedAnswer);
+      await this.client.sendText(chatId, normalizedAnswer);
+      await this.#emit("task_completed", { correlationId, mode: "fast", ingress: "telegram" });
+      return Object.freeze({ outcome: "replied", reason: "ordinary_conversation" });
+    } catch (error) {
+      await this.#emit("task_failed", {
+        correlationId,
+        mode: "fast",
+        ingress: "telegram",
+        error_class: error?.name ?? "Error",
+      });
+      throw error;
+    }
   }
+}
+
+export function defaultTelegramStructuredLog() {
+  return createStructuredEventLog({ logDir: "/Users/hun/PrivateAI/logs/structured" });
 }
