@@ -12,6 +12,7 @@
 		13A9C21BDE81002CEBEAAFC9 /* SpeechSentenceBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74F11D95E9242560DDAA839D /* SpeechSentenceBufferTests.swift */; };
 		13B8104B6998D3BCDD47FA61 /* GrowthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4CA6FC7A531DDE35801DC9 /* GrowthModels.swift */; };
 		14D347BF684DDA1E08DDB2C8 /* ChatGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61190AA630BD3FAF26C7221 /* ChatGenerationTests.swift */; };
+		1C8DAAF1D660870AE4696516 /* DevelopmentWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B5D782254D7110E5CE38A2 /* DevelopmentWork.swift */; };
 		2B65233DD38B49833207CD8D /* GrowthCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B070082A0D693F4DE8869C /* GrowthCenterView.swift */; };
 		30714A9CA0EA08216A51F24B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AC77893B030276C9DE8C2AE6 /* Assets.xcassets */; };
 		38468CF2B5FCD493C4FF3314 /* ApprovalChallengeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A1BE6C485E5F08697289684 /* ApprovalChallengeTests.swift */; };
@@ -33,6 +34,7 @@
 		A38398D5DD1C80FFB372C31E /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB2FE9362CFCB01278465B4 /* ChatView.swift */; };
 		B0B973D83CE455D8D7735AF3 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48F506ECBC4DC0C41B13416 /* KeychainStore.swift */; };
 		B3FD3700F88A5779E523177E /* CodexTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEF7BFE28CD3946BD5978C1 /* CodexTaskTests.swift */; };
+		C88CF2BBB89CB65F53229605 /* DevelopmentWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342C528D4F7157E02B3D05AB /* DevelopmentWorkView.swift */; };
 		C891799E645A6DE33C4EA868 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B018AC246B5BDD9CCE4BAA57 /* SettingsView.swift */; };
 		DCCD5DDAF2A723D0BDD1B8DC /* CodexApprovalSigningKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D5FFA06ECFAA0B8CA8BBE63 /* CodexApprovalSigningKey.swift */; };
 		E597CAF81A6DEBFF6D2ACB27 /* CodexTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59866F261593FD9D7F6AC9AD /* CodexTask.swift */; };
@@ -58,6 +60,7 @@
 		198EEC931F14B65CC4D6C597 /* ConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionState.swift; sourceTree = "<group>"; };
 		2A1BE6C485E5F08697289684 /* ApprovalChallengeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalChallengeTests.swift; sourceTree = "<group>"; };
 		31B070082A0D693F4DE8869C /* GrowthCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrowthCenterView.swift; sourceTree = "<group>"; };
+		342C528D4F7157E02B3D05AB /* DevelopmentWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopmentWorkView.swift; sourceTree = "<group>"; };
 		4DB2FE9362CFCB01278465B4 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		4F932D2E3C5F7B37AE6B83FB /* LocalAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAIApp.swift; sourceTree = "<group>"; };
 		59866F261593FD9D7F6AC9AD /* CodexTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTask.swift; sourceTree = "<group>"; };
@@ -73,6 +76,7 @@
 		8B1761A12AE2A51284412A5D /* ConversationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationStore.swift; sourceTree = "<group>"; };
 		9D4CA6FC7A531DDE35801DC9 /* GrowthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrowthModels.swift; sourceTree = "<group>"; };
 		9FCC3C24E77B03492751A9D7 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		A3B5D782254D7110E5CE38A2 /* DevelopmentWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopmentWork.swift; sourceTree = "<group>"; };
 		A426E3DB25B7FB6F09BCFD67 /* LocalAI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LocalAI.entitlements; sourceTree = "<group>"; };
 		AC77893B030276C9DE8C2AE6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B018AC246B5BDD9CCE4BAA57 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -110,6 +114,7 @@
 				EF4947F265B63649B94D1891 /* CodexTaskFlowView.swift */,
 				73D84C4A27A7A0F309D1C67C /* ContentView.swift */,
 				5E4E8472E1874ABF766BFE3E /* ConversationListView.swift */,
+				342C528D4F7157E02B3D05AB /* DevelopmentWorkView.swift */,
 				31B070082A0D693F4DE8869C /* GrowthCenterView.swift */,
 				71604389AFE97C2496B8F0B5 /* MarkdownMessageView.swift */,
 				FE39FC7C385FF147256C1EB7 /* PairingView.swift */,
@@ -162,6 +167,7 @@
 				59866F261593FD9D7F6AC9AD /* CodexTask.swift */,
 				198EEC931F14B65CC4D6C597 /* ConnectionState.swift */,
 				BCAC07DA9E422681C454BC3F /* Conversation.swift */,
+				A3B5D782254D7110E5CE38A2 /* DevelopmentWork.swift */,
 				9D4CA6FC7A531DDE35801DC9 /* GrowthModels.swift */,
 				BA6B57290A97463D7572CA59 /* PairingLink.swift */,
 				7B3DEA861C8249D618F89772 /* TTSModels.swift */,
@@ -328,6 +334,8 @@
 				658F8D114654B6C33728568B /* Conversation.swift in Sources */,
 				81BAB23C85FBD8DF27F1E4BC /* ConversationListView.swift in Sources */,
 				FAC80EE6126D6770D28EB72A /* ConversationStore.swift in Sources */,
+				1C8DAAF1D660870AE4696516 /* DevelopmentWork.swift in Sources */,
+				C88CF2BBB89CB65F53229605 /* DevelopmentWorkView.swift in Sources */,
 				2B65233DD38B49833207CD8D /* GrowthCenterView.swift in Sources */,
 				13B8104B6998D3BCDD47FA61 /* GrowthModels.swift in Sources */,
 				B0B973D83CE455D8D7735AF3 /* KeychainStore.swift in Sources */,
@@ -378,7 +386,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LocalAI/Resources/LocalAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 8UUD85JPJ2;
 				INFOPLIST_FILE = LocalAI/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -538,7 +546,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LocalAI/Resources/LocalAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 8UUD85JPJ2;
 				INFOPLIST_FILE = LocalAI/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

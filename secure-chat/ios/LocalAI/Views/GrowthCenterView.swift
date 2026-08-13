@@ -29,6 +29,16 @@ struct GrowthCenterView: View {
         NavigationStack {
             List {
                 safeguardsSection
+                Section {
+                    Button {
+                        AppRouter.shared.openDevelopmentWork()
+                    } label: {
+                        Label("Cursor / Supervisor 작업 목록", systemImage: "hammer.fill")
+                    }
+                    .accessibilityHint("진행 중인 Development Run과 cursor.develop 승인을 엽니다")
+                } header: {
+                    Text("Cursor / 개발")
+                }
                 approvalsSection
                 proposalsSection
             }

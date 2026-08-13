@@ -323,6 +323,20 @@ actor LocalAIClient {
         return result.requests
     }
 
+    func fetchDevelopmentRuns(limit: Int = 30) async throws -> [DevelopmentRunSummary] {
+        let bounded = min(max(limit, 1), 100)
+        struct RunList: Decodable { let runs: [DevelopmentRunSummary] }
+        let result: RunList = try await request(path: "/api/development/runs?limit=\(bounded)")
+        return result.runs
+    }
+
+    func fetchOwnerTasks(limit: Int = 40) async throws -> [OwnerTaskSummary] {
+        let bounded = min(max(limit, 1), 100)
+        struct TaskList: Decodable { let tasks: [OwnerTaskSummary] }
+        let result: TaskList = try await request(path: "/api/tasks?limit=\(bounded)")
+        return result.tasks
+    }
+
     func decide(_ requestValue: PendingApproval, decision: ApprovalDecision) async throws {
         struct DecisionRequest: Encodable {
             let decision: ApprovalDecision

@@ -392,6 +392,13 @@ struct ChatView: View {
                 }
                 ToolbarItem(placement: .principal) { modeMenu }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { appRouter.openDevelopmentWork() } label: {
+                        Image(systemName: "hammer.fill")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Cursor 개발 작업")
+                    .accessibilityHint("Development Supervisor와 cursor.develop 진행 목록을 엽니다")
                     Button { appRouter.openCodex() } label: {
                         Image(systemName: "terminal.fill")
                             .frame(width: 44, height: 44)
@@ -462,6 +469,14 @@ struct ChatView: View {
                 CodexTaskFlowView(initialDraft: appRouter.pendingCodexDraft)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $appRouter.showDevelopmentWork) {
+                DevelopmentWorkView(
+                    approvalKeyState: model.approvalKeyState,
+                    onRepairPairing: onRepairPairing
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
         }
         .tint(AppTheme.accent)

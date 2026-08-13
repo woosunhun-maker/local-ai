@@ -18,11 +18,16 @@ final class AppRouter: ObservableObject {
 
     @Published var showGrowthCenter = false
     @Published var showCodexTasks = false
+    @Published var showDevelopmentWork = false
     @Published var pendingCodexDraft: String?
 
     func openCodex(draft: String? = nil) {
         pendingCodexDraft = draft
         showCodexTasks = true
+    }
+
+    func openDevelopmentWork() {
+        showDevelopmentWork = true
     }
 
     func clearCodexDraft() {
@@ -38,6 +43,9 @@ final class AppRouter: ObservableObject {
             return true
         case "codex":
             openCodex()
+            return true
+        case "dev", "cursor", "development":
+            openDevelopmentWork()
             return true
         default:
             return false
