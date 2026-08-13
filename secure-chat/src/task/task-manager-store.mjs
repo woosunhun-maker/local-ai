@@ -22,7 +22,7 @@ const MAX_EVIDENCE_PER_TASK = 50;
 
 export const TASK_STORE_SCHEMA = "local-ai.task-manager.v1";
 
-/** 허용된 상태 전이. Executor/Verifier 본문은 PHASE 4. */
+/** 허용된 상태 전이. Executor/Verifier는 task-orchestrator가 사용한다. */
 export const TASK_TRANSITIONS = Object.freeze({
   CREATED: Object.freeze(["ANALYZING", "FAILED"]),
   ANALYZING: Object.freeze(["PLANNED", "FAILED", "NEEDS_REPLAN"]),

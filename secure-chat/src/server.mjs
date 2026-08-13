@@ -36,6 +36,9 @@ import { createStructuredEventLog } from "./structured-event-log.mjs";
 import { runSystemCommand } from "./system/introspection.mjs";
 import { TaskManagerStore } from "./task/task-manager-store.mjs";
 import { createEvidenceRecord } from "./evidence/evidence.mjs";
+import { createTaskExecutor } from "./executor/task-executor.mjs";
+import { createTaskOrchestrator } from "./executor/task-orchestrator.mjs";
+import { DevelopmentLedgerStore } from "./ledger/development-ledger.mjs";
 import { DecisionMemoryStore } from "./memory/decision-memory-store.mjs";
 import { DiscussionContextStore } from "./memory/discussion-context-store.mjs";
 import { createMemoryContextFacade } from "./memory/context-facade.mjs";
@@ -76,6 +79,7 @@ const CODEX_TASK_PATH = `${ROOT}/data/codex-bridge/tasks.json`;
 const TASK_MANAGER_PATH = `${ROOT}/data/task-manager/tasks.json`;
 const DECISION_MEMORY_PATH = `${ROOT}/data/decision-memory/decisions.json`;
 const DISCUSSION_CONTEXT_PATH = `${ROOT}/data/discussion-context/active.json`;
+const DEVELOPMENT_LEDGER_PATH = `${ROOT}/data/development-ledger/changes.json`;
 const CODEX_SOURCE_ROOT = `${ROOT}/app/secure-chat`;
 const TELEGRAM_CONFIG_SCRIPT = `${ROOT}/app/secure-chat/scripts/configure-telegram-general.mjs`;
 const CONFIRMED_MEMORY_PATH =
@@ -496,6 +500,13 @@ async function main() {
   });
   const taskManager = new TaskManagerStore(TASK_MANAGER_PATH, { structuredLog });
   await taskManager.initialize();
+  const developmentLedger = await new DevelopmentLedgerStore(DEVELOPMENT_LEDGER_PATH).initialize();
+  const taskExecutor = createTaskExecutor({ toolRegistry, structuredLog });
+  const taskOrchestrator = createTaskOrchestrator({
+    taskStore: taskManager,
+    executor: taskExecutor,
+    structuredLog,
+  });
   const ownerActionExecutor = new OwnerActionExecutor({
     approvalStore,
     proactiveStore,
@@ -672,6 +683,62 @@ async function main() {
           } catch (error) {
             return json(response, error?.statusCode ?? 400, { error: error?.message ?? "task_evidence_failed" });
           }
+        }
+        const runMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/run$/);
+        if (request.method === "POST" && runMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            const body = await readBody(request);
+            const result = await taskOrchestrator.run({
+              taskId: runMatch[1],
+              toolName: body?.tool_name,
+              channel: body?.channel ?? "local_owner_app",
+              hasApproval: body?.has_approval === true,
+              expectations: Array.isArray(body?.expectations) ? body.expectations : [],
+            });
+            return json(response, 200, result);
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "task_run_failed" });
+          }
+        }
+        const replanMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/replan$/);
+        if (request.method === "POST" && replanMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            return json(response, 200, await taskOrchestrator.replan(replanMatch[1]));
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "task_replan_failed" });
+          }
+        }
+      }
+      if (request.method === "GET" && url.pathname === "/api/ledger/development") {
+        if (!hasScope(device, "status") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        return json(response, 200, { entries: await developmentLedger.list() });
+      }
+      if (request.method === "POST" && url.pathname === "/api/ledger/development") {
+        if (!hasScope(device, "chat") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        try {
+          const body = await readBody(request);
+          const entry = await developmentLedger.record({
+            request: body?.request,
+            proposedBy: body?.proposed_by ?? device.name ?? "owner",
+            approvedBy: body?.approved_by ?? null,
+            filesChanged: body?.files_changed,
+            tests: body?.tests,
+            verification: body?.verification,
+            rollbackReference: body?.rollback_reference,
+          });
+          return json(response, 201, entry);
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "ledger_record_failed" });
         }
       }
       if (request.method === "GET" && url.pathname === "/api/memory") {
