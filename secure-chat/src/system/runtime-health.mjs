@@ -135,6 +135,7 @@ export async function collectSystemRuntimeHealth({
   readFileImpl = readFile,
   ttsCatalog = null,
   taskManagerReady = false,
+  toolRegistryReady = false,
   packageVersion = PACKAGE_VERSION,
   now = () => new Date(),
 } = {}) {
@@ -227,12 +228,17 @@ export async function collectSystemRuntimeHealth({
     }),
     entry({
       service: "tool_registry",
-      status: "not_implemented",
+      status: toolRegistryReady ? "ok" : "not_implemented",
       model: null,
       pid: null,
       last_health_check: checkedAt,
       version: packageVersion,
-      error: "phase3_pending",
+      error: toolRegistryReady ? null : "phase3_pending",
+      detail: Object.freeze({
+        note: toolRegistryReady
+          ? "메타데이터 레지스트리만. 플러그인 재작성 없음"
+          : "not_ready",
+      }),
     }),
     entry({
       service: "task_manager",

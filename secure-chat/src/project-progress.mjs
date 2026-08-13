@@ -9,8 +9,8 @@ export const PROJECT_PROGRESS_BASELINE = Object.freeze([
   Object.freeze({ id: "models", title: "대화·모델·음성", testsDone: 4, operationsDone: 1 }),
   Object.freeze({ id: "intent", title: "의도·정책", testsDone: 4, operationsDone: 0 }),
   Object.freeze({ id: "memory", title: "사용자 통제 기억", testsDone: 4, operationsDone: 1 }),
-  Object.freeze({ id: "tools", title: "Agent·도구 실행", testsDone: 4, operationsDone: 0 }),
-  Object.freeze({ id: "approval", title: "승인·감사·효과", testsDone: 4, operationsDone: 1 }),
+  Object.freeze({ id: "tools", title: "Agent·도구 실행", testsDone: 4, operationsDone: 1 }),
+  Object.freeze({ id: "approval", title: "승인·감사·효과", testsDone: 4, operationsDone: 2 }),
   Object.freeze({ id: "release", title: "릴리즈·비상 운영", testsDone: 2, operationsDone: 1 }),
 ]);
 
@@ -22,12 +22,13 @@ export const LIVE_CAPABILITIES = Object.freeze([
   "Mac loopback 보안 서버와 tailnet 접속",
   "iPhone Local AI앱 인증·서명 승인 기반",
   "system.status 실측 인트로스펙션과 Task Manager 상태 기계",
+  "Tool Registry·Approval Policy(실행기 본체 없음)",
 ]);
 
 export const NEXT_CAPABILITIES = Object.freeze([
   "브라우저 대행의 완전 자동 붙여넣기·전송",
   "암호화 Keychain 기억으로 확인형 저장소 승격",
-  "Memory 4계층·Tool Registry·Approval 일반화",
+  "Decision/Discussion의 앱 UI 편집 화면",
   "Executor/Verifier 본문과 실패 시 재계획 루프",
   "공개 웹 조사 worker와 Gmail·Coupang·Home Assistant Adapter",
 ]);

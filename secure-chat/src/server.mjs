@@ -36,6 +36,11 @@ import { createStructuredEventLog } from "./structured-event-log.mjs";
 import { runSystemCommand } from "./system/introspection.mjs";
 import { TaskManagerStore } from "./task/task-manager-store.mjs";
 import { createEvidenceRecord } from "./evidence/evidence.mjs";
+import { DecisionMemoryStore } from "./memory/decision-memory-store.mjs";
+import { DiscussionContextStore } from "./memory/discussion-context-store.mjs";
+import { createMemoryContextFacade } from "./memory/context-facade.mjs";
+import { createBuiltinToolRegistry } from "./tools/tool-registry.mjs";
+import { evaluateApprovalPolicy } from "./approval/approval-policy.mjs";
 import { streamTtsEvents } from "./tts/http-stream.mjs";
 import { createRuntimeTtsRegistry } from "./tts/pinned-runtime.mjs";
 import { SpeechSession } from "./tts/speech-session.mjs";
@@ -69,6 +74,8 @@ const TELEGRAM_CONFIG_PATH = `${ROOT}/config/telegram-general.json`;
 const CODEX_BRIDGE_CONFIG_PATH = `${ROOT}/config/codex-bridge.json`;
 const CODEX_TASK_PATH = `${ROOT}/data/codex-bridge/tasks.json`;
 const TASK_MANAGER_PATH = `${ROOT}/data/task-manager/tasks.json`;
+const DECISION_MEMORY_PATH = `${ROOT}/data/decision-memory/decisions.json`;
+const DISCUSSION_CONTEXT_PATH = `${ROOT}/data/discussion-context/active.json`;
 const CODEX_SOURCE_ROOT = `${ROOT}/app/secure-chat`;
 const TELEGRAM_CONFIG_SCRIPT = `${ROOT}/app/secure-chat/scripts/configure-telegram-general.mjs`;
 const CONFIRMED_MEMORY_PATH =
@@ -477,11 +484,22 @@ async function main() {
   const intentShadow = INTENT_SHADOW_MODE === "enabled" ? new IntentShadowMonitor(INTENT_SHADOW_PATH) : null;
   const ttsRegistry = await createRuntimeTtsRegistry();
   const confirmedMemory = await new ConfirmedMemoryStore(CONFIRMED_MEMORY_PATH).initialize();
+  const decisionMemory = await new DecisionMemoryStore(DECISION_MEMORY_PATH).initialize();
+  const discussionContext = await new DiscussionContextStore(DISCUSSION_CONTEXT_PATH).initialize();
+  const memoryContext = createMemoryContextFacade({
+    confirmedMemory,
+    decisionStore: decisionMemory,
+    discussionStore: discussionContext,
+  });
+  const toolRegistry = createBuiltinToolRegistry({
+    growthAvailable: GROWTH_TRANSPORT === "openclaw",
+  });
   const taskManager = new TaskManagerStore(TASK_MANAGER_PATH, { structuredLog });
   await taskManager.initialize();
   const ownerActionExecutor = new OwnerActionExecutor({
     approvalStore,
     proactiveStore,
+    toolRegistry,
     audit: async (entry) => {
       await audit(entry).catch(() => {});
     },
@@ -506,6 +524,7 @@ async function main() {
           })),
         },
         taskManagerReady: true,
+        toolRegistryReady: true,
       },
       taskSummary: await taskManager.summary(),
     });
@@ -710,6 +729,73 @@ async function main() {
           }
           throw error;
         }
+      }
+      if (request.method === "GET" && url.pathname === "/api/memory/context") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const query = url.searchParams.get("q") ?? "";
+        return json(response, 200, await memoryContext.snapshot({ query }));
+      }
+      if (request.method === "POST" && url.pathname === "/api/memory/decisions") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        try {
+          const body = await readBody(request);
+          const item = await decisionMemory.propose({ decision: body?.decision, reason: body?.reason });
+          return json(response, 201, item);
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "decision_propose_failed" });
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/api/memory/decisions/confirm") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        try {
+          const body = await readBody(request);
+          return json(response, 200, await decisionMemory.confirm(body?.id));
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "decision_confirm_failed" });
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/api/memory/discussions") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        try {
+          const body = await readBody(request);
+          return json(response, 201, await discussionContext.open({
+            topic: body?.topic,
+            openQuestions: body?.open_questions,
+          }));
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "discussion_open_failed" });
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/api/memory/discussions/resolve") {
+        if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        try {
+          const body = await readBody(request);
+          return json(response, 200, await discussionContext.resolve(body?.id));
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "discussion_resolve_failed" });
+        }
+      }
+      if (request.method === "GET" && url.pathname === "/api/tools") {
+        if (!hasScope(device, "status") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        return json(response, 200, {
+          tools: toolRegistry.list().map((tool) => toolRegistry.describe(tool.tool_name)),
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/api/tools/authorize-check") {
+        if (!hasScope(device, "status") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const body = await readBody(request);
+        const tool = toolRegistry.get(body?.tool_name);
+        if (!tool) return json(response, 404, { error: "unknown_tool" });
+        const policy = evaluateApprovalPolicy({
+          tool,
+          channel: body?.channel,
+          hasApproval: body?.has_approval === true,
+          trustState: body?.trust_state ?? "owner_device",
+        });
+        return json(response, 200, {
+          tool: toolRegistry.describe(tool.tool_name),
+          policy,
+        });
       }
       if (request.method === "POST" && url.pathname === "/api/codex/approval-key") {
         if (!hasScope(device, "approvals") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });

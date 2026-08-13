@@ -6,6 +6,8 @@ import {
   approvalRequestFromClassification,
   classifyOwnerAction,
 } from "./owner-action-plan.mjs";
+import { createBuiltinToolRegistry } from "../tools/tool-registry.mjs";
+import { assertToolExecutionAllowed } from "../approval/approval-policy.mjs";
 
 export async function notifyOwnerOfActionApproval({
   fetchImpl = fetch,
@@ -46,6 +48,8 @@ export class OwnerActionBridge {
     approvalStore,
     proactiveStore = null,
     notify = notifyOwnerOfActionApproval,
+    toolRegistry = createBuiltinToolRegistry(),
+    channel = "telegram",
   } = {}) {
     if (!approvalStore || typeof approvalStore.createRequest !== "function") {
       throw new Error("invalid_owner_action_bridge");
@@ -53,9 +57,19 @@ export class OwnerActionBridge {
     this.approvalStore = approvalStore;
     this.proactiveStore = proactiveStore;
     this.notify = notify;
+    this.toolRegistry = toolRegistry;
+    this.channel = channel;
   }
 
   async handleActionText(text) {
+    assertToolExecutionAllowed({
+      registry: this.toolRegistry,
+      toolName: "owner.action.request",
+      channel: this.channel,
+      hasApproval: false,
+      trustState: "owner_device",
+    });
+
     const classification = classifyOwnerAction(text);
     if (classification.mode === "human_only" || classification.mode === "reject") {
       return Object.freeze({

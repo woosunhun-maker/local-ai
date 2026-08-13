@@ -105,8 +105,8 @@ test("progress query returns gate percentages and live capabilities without aski
   const result = await service.handleUpdate(update("진행 상황"));
   assert.equal(result.reason, "project_progress");
   assert.equal(modelCalls, 0);
-  assert.match(sent[0][1], /전체 검증 게이트: 58%/u);
-  assert.match(sent[0][1], /실제 운영 연결: 25%/u);
+  assert.match(sent[0][1], /전체 검증 게이트: 61%/u);
+  assert.match(sent[0][1], /실제 운영 연결: 31%/u);
   assert.match(sent[0][1], /현재 실제 가능한 기능/u);
 });
 

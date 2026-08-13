@@ -46,7 +46,7 @@ export async function runSystemCommand(command, {
     guidance: Object.freeze([
       "이 결과는 실제 프로브/파일 조회에 기반한다 (evidence.epistemic=VERIFIED).",
       "INFERRED 문장으로 프로세스 실행 여부를 단정하지 않는다.",
-      "tool_registry·Verifier 본문은 아직 구현되지 않았다.",
+      "Executor/Verifier 본문은 PHASE 4에서 구현한다.",
     ]),
   });
 }

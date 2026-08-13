@@ -4,6 +4,8 @@
 import { createHash } from "node:crypto";
 import { SharedChromeClient } from "../browser/shared-chrome-client.mjs";
 import { OWNER_ACTION_KIND, parseOwnerActionPayload } from "./owner-action-plan.mjs";
+import { createBuiltinToolRegistry } from "../tools/tool-registry.mjs";
+import { assertToolExecutionAllowed } from "../approval/approval-policy.mjs";
 
 function sha256(value) {
   return createHash("sha256").update(String(value), "utf8").digest("hex");
@@ -15,6 +17,7 @@ export class OwnerActionExecutor {
     proactiveStore = null,
     browser = new SharedChromeClient(),
     audit = async () => {},
+    toolRegistry = createBuiltinToolRegistry(),
   } = {}) {
     if (!approvalStore || typeof approvalStore.consumeApproved !== "function") {
       throw new Error("invalid_owner_action_executor");
@@ -23,9 +26,17 @@ export class OwnerActionExecutor {
     this.proactiveStore = proactiveStore;
     this.browser = browser;
     this.audit = audit;
+    this.toolRegistry = toolRegistry;
   }
 
   async executeApproved(approvalId, payloadSha256) {
+    assertToolExecutionAllowed({
+      registry: this.toolRegistry,
+      toolName: "owner.action.execute",
+      channel: "local_owner_app",
+      hasApproval: true,
+      trustState: "owner_device",
+    });
     const consumed = await this.approvalStore.consumeApproved(approvalId, payloadSha256);
     if (!consumed || consumed.kind !== OWNER_ACTION_KIND) {
       throw Object.assign(new Error("owner_action_approval_invalid"), { statusCode: 403 });

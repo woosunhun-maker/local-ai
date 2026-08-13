@@ -31,7 +31,7 @@ try {
 
 const result = await runSystemCommand("system.status", {
   taskSummary,
-  healthOptions: { taskManagerReady },
+  healthOptions: { taskManagerReady, toolRegistryReady: taskManagerReady },
 });
 if (textMode) {
   process.stdout.write(`${formatSystemStatusText(result)}\n`);
