@@ -117,9 +117,11 @@ export function createDevelopmentSupervisor({
       success_criteria: proposalOverrides.success_criteria ?? [
         { type: "session_present" },
         { type: "sandbox_clean" },
-        { type: "write_path_observed_if_changed" },
+        { type: "write_authorization_verified" },
         { type: "changed_files_within_allowed_paths" },
+        { type: "no_main_repo_writes" },
         { type: "out_of_scope_not_touched" },
+        { type: "diff_hash_present" },
         { type: "test_exit_zero" },
       ],
       out_of_scope: proposalOverrides.out_of_scope ?? [
@@ -336,6 +338,7 @@ export function createDevelopmentSupervisor({
           supervisor: {
             run_id: run.run_id,
             envelope_digest: run.envelope.envelope_digest,
+            envelope: run.envelope,
             worktree_path: run.worktree.worktree_path,
             write_roots: run.worktree.write_roots,
             main_repo: run.worktree.main_repo,

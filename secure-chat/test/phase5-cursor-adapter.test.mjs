@@ -338,6 +338,7 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
       has_content_changes: false,
       blocked_files: [],
       write_path_observed: false,
+      write_authorization_verified: true,
     }).result, "UNKNOWN");
 
     assert.equal(verifyCursorHostOutcome({
@@ -350,6 +351,8 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
       cancelled: false,
       test_command: null,
       write_path_observed: false,
+      write_authorization_verified: true,
+      main_repo_writes: [],
     }).result, "PASS");
 
     const withWriteUnknown = verifyCursorHostOutcome({
@@ -362,6 +365,9 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
       cancelled: false,
       test_command: null,
       write_path_observed: false,
+      write_authorization_verified: false,
+      write_authorization: { kind: "unauthorized", reason: "envelope_missing" },
+      main_repo_writes: [],
     });
     assert.equal(withWriteUnknown.result, "UNKNOWN");
     assert.match(withWriteUnknown.reason, /security_expectation_unknown/);
@@ -455,7 +461,7 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
     }
   });
 
-  test("content change without WRITE path observation yields UNKNOWN host outcome", async () => {
+  test("content change without WRITE and without envelope yields UNKNOWN", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cursor-write-unknown-"));
     try {
       await initGitRepo(dir);
@@ -475,9 +481,114 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
       });
       assert.equal(host.has_content_changes, true);
       assert.equal(host.write_path_observed, false);
+      assert.equal(host.write_authorization_verified, false);
+      assert.equal(host.write_authorization.kind, "unauthorized");
       const outcome = verifyCursorHostOutcome(host);
       assert.equal(outcome.result, "UNKNOWN");
-      assert.match(outcome.reason, /write_path|security_expectation_unknown/);
+      assert.match(outcome.reason, /write_authorization|security_expectation_unknown/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("envelope_authorized_write PASS without ACP WRITE event", async () => {
+    const { createApprovalEnvelope } = await import("../src/supervisor/approval-envelope.mjs");
+    const dir = await mkdtemp(join(tmpdir(), "cursor-env-auth-"));
+    try {
+      await initGitRepo(dir);
+      await mkdir(join(dir, "secure-chat", "test", "fixtures"), { recursive: true });
+      const baseline = await captureGitBaseline({ cwd: dir });
+      await writeFile(
+        join(dir, "secure-chat", "test", "fixtures", "envelope-auth-marker.txt"),
+        "envelope authorized\n",
+      );
+
+      const envelope = createApprovalEnvelope({
+        runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        goal: "envelope authorized write 검증용 목표입니다",
+        proposalDigest: "ab".repeat(32),
+        successCriteria: [{ type: "write_authorization_verified" }],
+        outOfScope: ["diol-os/", "/Users/hun/PrivateAI"],
+        worktreePath: dir,
+        branch: "dev/test-envelope-auth",
+        allowedPaths: ["secure-chat/"],
+        allowedCommands: ["npm test", "git status"],
+        riskClass: "HIGH",
+        maxRuntimeMs: 60 * 60_000,
+      });
+
+      const host = await collectCursorHostResult({
+        taskId: "task-env-auth",
+        sessionId: "sess-env",
+        startedAt: new Date().toISOString(),
+        stopReason: "end_turn",
+        exitCode: 0,
+        cwd: dir,
+        baseline,
+        permissionEvents: [],
+        writeRoots: [dir],
+        mainRepo: null,
+        mainReadOnly: true,
+        envelope,
+      });
+
+      assert.equal(host.has_content_changes, true);
+      assert.equal(host.write_path_observed, false);
+      assert.equal(host.write_authorization.kind, "envelope_authorized_write");
+      assert.equal(host.write_authorization_verified, true);
+      const outcome = verifyCursorHostOutcome(host);
+      assert.equal(outcome.result, "PASS");
+      assert.equal(
+        outcome.checks.find((c) => c.id === "write_authorization_verified")?.status,
+        "verified",
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("out-of-envelope path fails write authorization even with ACP WRITE", async () => {
+    const { createApprovalEnvelope } = await import("../src/supervisor/approval-envelope.mjs");
+    const dir = await mkdtemp(join(tmpdir(), "cursor-oob-"));
+    try {
+      await initGitRepo(dir);
+      await mkdir(join(dir, "outside"), { recursive: true });
+      const baseline = await captureGitBaseline({ cwd: dir });
+      await writeFile(join(dir, "outside", "leak.txt"), "nope\n");
+
+      const envelope = createApprovalEnvelope({
+        runId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        goal: "out of envelope 실패 검증용 목표입니다",
+        proposalDigest: "cd".repeat(32),
+        successCriteria: [{ type: "write_authorization_verified" }],
+        outOfScope: ["diol-os/"],
+        worktreePath: dir,
+        branch: "dev/test-oob",
+        allowedPaths: ["secure-chat/"],
+        allowedCommands: ["npm test"],
+        riskClass: "HIGH",
+      });
+
+      const host = await collectCursorHostResult({
+        taskId: "task-oob",
+        sessionId: "sess-oob",
+        startedAt: new Date().toISOString(),
+        stopReason: "end_turn",
+        exitCode: 0,
+        cwd: dir,
+        baseline,
+        permissionEvents: [
+          { risk: "WRITE", optionId: "allow-once", decision: "approved" },
+        ],
+        writeRoots: [dir],
+        mainReadOnly: true,
+        envelope,
+      });
+      assert.equal(host.write_path_observed, true);
+      assert.equal(host.write_authorization_verified, false);
+      assert.equal(host.write_authorization.kind, "out_of_envelope");
+      const outcome = verifyCursorHostOutcome(host);
+      assert.equal(outcome.result, "FAIL");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

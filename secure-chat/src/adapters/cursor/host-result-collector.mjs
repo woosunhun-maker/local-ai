@@ -12,6 +12,7 @@ import {
   CURSOR_PROJECT_ROOT,
   filterForbiddenChangedPaths,
 } from "./sandbox.mjs";
+import { evaluateWriteAuthorization } from "./write-authorization.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -402,6 +403,7 @@ export async function collectCursorHostResult({
   writeRoots = null,
   mainRepo = null,
   mainReadOnly = false,
+  envelope = null,
 } = {}) {
   if (typeof taskId !== "string" || !taskId) fail("invalid_task_id");
 
@@ -429,12 +431,26 @@ export async function collectCursorHostResult({
           ? "completed"
           : `exit:${exitCode}`;
 
-  const writeApproved = (permissionEvents ?? []).some(
-    (e) => e?.risk === "WRITE" && (e?.optionId === "allow-once" || e?.decision === "approved"),
-  );
-  const executeEscalatedWrite = (permissionEvents ?? []).some(
-    (e) => e?.escalated_from === "EXECUTE" && e?.risk === "WRITE",
-  );
+  // main tree 독립 검증: worktree 변경과 동일한 relative path가 main에서도 dirty인가
+  const mainRepoWrites = [];
+  if (mainReadOnly && mainRepo && git.has_content_changes) {
+    for (const relative of git.changed_files) {
+      const mainStatus = await runGit(["status", "--porcelain=v1", "--", relative], { cwd: mainRepo });
+      if (mainStatus.stdout.trim()) mainRepoWrites.push(relative);
+    }
+  }
+
+  const writeAuth = evaluateWriteAuthorization({
+    hasContentChanges: git.has_content_changes,
+    changedFiles: git.changed_files,
+    blockedFiles: git.blocked_files,
+    mainRepoWrites,
+    writeRoots: writeRoots ?? (envelope?.worktree_path ? [envelope.worktree_path] : null),
+    mainRepo,
+    mainReadOnly,
+    envelope,
+    permissionEvents,
+  });
 
   const evidence = [
     createEvidenceRecord({
@@ -456,21 +472,30 @@ export async function collectCursorHostResult({
   ];
   if (test) evidence.push(...test.evidence);
 
-  if (writeApproved || executeEscalatedWrite) {
+  if (writeAuth.write_authorization_verified) {
     evidence.push(createEvidenceRecord({
       epistemic: "VERIFIED",
-      claim: "cursor.permission.write_path_observed",
-      source: "cursor.permission",
+      claim: `cursor.write_authorization_verified kind=${writeAuth.kind}`,
+      source: "host.write_authorization",
       taskId,
-      detail: { writeApproved, executeEscalatedWrite },
+      detail: {
+        kind: writeAuth.kind,
+        reason: writeAuth.reason,
+        acp_write_observed: writeAuth.acp_write_observed,
+        envelope_authorized_write: writeAuth.envelope_authorized_write,
+      },
     }));
   } else if (git.has_content_changes) {
     evidence.push(createEvidenceRecord({
       epistemic: "UNKNOWN",
-      claim: "cursor.permission.write_path_unknown",
-      source: "cursor.permission",
+      claim: `cursor.write_authorization_unverified reason=${writeAuth.reason}`,
+      source: "host.write_authorization",
       taskId,
-      detail: { note: "content changed but WRITE permission path not observed" },
+      detail: {
+        kind: writeAuth.kind,
+        reason: writeAuth.reason,
+        note: "ACP WRITE event is optional; envelope scope host verification failed or missing",
+      },
     }));
   }
 
@@ -487,12 +512,16 @@ export async function collectCursorHostResult({
     changed_files: git.changed_files,
     blocked_files: git.blocked_files,
     pre_existing_files: git.pre_existing_files,
+    main_repo_writes: Object.freeze(mainRepoWrites),
     git_status: git.git_status,
     git_diff: git.git_diff,
     diff_hash: git.diff_hash,
     diff_hash_kind: git.diff_hash_kind,
     has_content_changes: git.has_content_changes,
-    write_path_observed: writeApproved || executeEscalatedWrite,
+    // 하위 호환: ACP WRITE 관측 여부 (필수 불변조건 아님)
+    write_path_observed: writeAuth.acp_write_observed,
+    write_authorization: writeAuth,
+    write_authorization_verified: writeAuth.write_authorization_verified,
     test_command: test?.command ?? null,
     test_exit_code: test?.exit_code ?? null,
     evidence: Object.freeze(evidence),

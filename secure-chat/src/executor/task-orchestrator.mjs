@@ -141,6 +141,7 @@ export function createTaskOrchestrator({
       writeRoots,
       mainRepo,
       mainReadOnly,
+      envelope,
     });
 
     if (result.binding) {

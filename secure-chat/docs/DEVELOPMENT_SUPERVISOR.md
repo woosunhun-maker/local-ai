@@ -22,6 +22,34 @@ Discussion → Inspection(system.status) → Proposal(고정 success_criteria)
 3. **예산** — `max_leaf_tasks`, `max_replans_per_task`, `max_total_attempts`, `max_runtime`/`expires_at`. 초과 시 `BLOCKED`.
 4. **고정 success_criteria** — Cursor 실행 전 동결. Verifier는 이 기준만으로 PASS. 실행 후 모델이 완화 불가.
 
+## 쓰기 승인 모델 (`write_authorization_verified`)
+
+ACP `session/request_permission` WRITE 이벤트가 모든 filesystem 변경에 반드시
+온다는 가정은 두지 않는다. Cursor 공식 ACP는 도구가 승인을 요구할 때만
+permission event를 낸다.
+
+PASS 조건 (둘 중 하나 + host 독립 검증):
+
+1. 명시적 ACP WRITE(또는 EXECUTE→WRITE escalation) 승인 관측
+2. 변경이 immutable Development Envelope의 isolated worktree + `allowed_paths`
+   안임을 host가 VERIFIED → `envelope_authorized_write`
+
+Host는 실행 후 반드시 확인한다: worktree 내부, allowed_paths, main 미변경,
+prohibited/out_of_scope 미접근, canonical change set/hash, 고정 success_criteria,
+allowlisted command/test.
+
+Envelope 밖(worktree 밖, scope 증가, destructive, package install, allowlist 밖
+command, main 수정, commit/merge/push/deploy, PrivateAI/diol-os, secret/external)
+은 기존 Approval Manager 재승인.
+
+## Cursor CLI config
+
+Local AI ACP는 사용자 `~/.cursor/permissions.json` unrestricted를 신뢰하지 않는다.
+`CURSOR_CONFIG_DIR`(= `/Users/hun/PrivateAI/config/cursor-agent-local-ai`)에
+보수적 `cli-config.json`/`permissions.json`을 쓰고 spawn env로 주입한다.
+agent(2026.08.11+)는 `CURSOR_CONFIG_DIR` → `XDG_CONFIG_HOME/cursor` → `~/.cursor`
+순으로 설정을 읽는다.
+
 ## API
 
 - `POST /api/development/runs` — start

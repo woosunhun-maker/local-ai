@@ -57,12 +57,24 @@ function evaluateOneCriterion(criterion, { host, task, envelope } = {}) {
         status: host?.diff_hash && host.diff_hash_kind !== "unresolved" ? "verified" : "unknown",
       };
     case "write_path_observed_if_changed":
+      // 하위 호환 alias → write_authorization_verified
+    case "write_authorization_verified": {
+      const authorized = host?.write_authorization_verified === true
+        || (!host?.has_content_changes)
+        || (host?.write_path_observed === true && host?.write_authorization_verified !== false);
+      const kind = host?.write_authorization?.kind;
       return {
-        id,
+        id: raw.type === "write_path_observed_if_changed"
+          ? "write_authorization_verified"
+          : id,
         required: Boolean(host?.has_content_changes),
         security: true,
-        status: !host?.has_content_changes || host.write_path_observed ? "verified" : "unknown",
+        status: authorized
+          ? "verified"
+          : (kind === "out_of_envelope" ? "fail" : "unknown"),
+        detail: kind ?? null,
       };
+    }
     case "changed_files_within_allowed_paths": {
       const allowed = envelope?.allowed_paths ?? [];
       const changed = host?.changed_files ?? [];

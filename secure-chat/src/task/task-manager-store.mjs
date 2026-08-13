@@ -122,6 +122,9 @@ function publicBindings(bindings) {
     out.supervisor = Object.freeze({
       run_id: bindings.supervisor.run_id ?? null,
       envelope_digest: bindings.supervisor.envelope_digest ?? null,
+      envelope: bindings.supervisor.envelope
+        ? Object.freeze({ ...bindings.supervisor.envelope })
+        : null,
       worktree_path: bindings.supervisor.worktree_path ?? null,
       write_roots: Object.freeze([...(bindings.supervisor.write_roots ?? [])]),
       main_repo: bindings.supervisor.main_repo ?? null,

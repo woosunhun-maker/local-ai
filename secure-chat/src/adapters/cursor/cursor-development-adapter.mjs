@@ -11,6 +11,10 @@ import {
 } from "./permission-bridge.mjs";
 import { collectCursorHostResult, captureGitBaseline } from "./host-result-collector.mjs";
 import { CURSOR_PROJECT_ROOT } from "./sandbox.mjs";
+import {
+  ensureLocalAiCursorConfigDir,
+  inspectUserCursorApprovalMode,
+} from "./cursor-cli-config.mjs";
 
 function fail(code, statusCode = 400) {
   throw Object.assign(new Error(code), { statusCode });
@@ -94,12 +98,14 @@ export function createCursorDevelopmentAdapter({
     writeRoots = null,
     mainRepo = null,
     mainReadOnly = false,
+    envelope = null,
   }) {
     if (channel === "telegram") fail("telegram_cursor_develop_forbidden", 403);
     if (typeof prompt !== "string" || prompt.trim().length < 8) fail("invalid_cursor_prompt");
     if (task?.approval_required !== true) fail("cursor_develop_requires_approval_flag", 409);
 
     const effectiveRoot = runProjectRoot ?? projectRoot;
+    const effectiveEnvelope = envelope ?? task?.bindings?.supervisor?.envelope ?? null;
     const sandboxOpts = {
       projectRoot: effectiveRoot,
       writeRoots: writeRoots ?? (task?.bindings?.supervisor?.write_roots ?? null),
@@ -160,6 +166,10 @@ export function createCursorDevelopmentAdapter({
 
     const baseline = await captureGitBaseline({ cwd: effectiveRoot });
 
+    // 사용자 전역 unrestricted를 신뢰하지 않음 — Local AI 전용 CURSOR_CONFIG_DIR 주입
+    const localAiCursorConfig = await ensureLocalAiCursorConfigDir();
+    const userCursorMode = await inspectUserCursorApprovalMode();
+
     const startedAt = new Date(now()).toISOString();
     const client = createAcpClient({
       agentPath,
@@ -167,6 +177,7 @@ export function createCursorDevelopmentAdapter({
       env: {
         ...process.env,
         PATH: `${process.env.HOME}/.local/bin:/opt/homebrew/bin:${process.env.PATH ?? ""}`,
+        ...localAiCursorConfig.env,
       },
     });
 
@@ -259,6 +270,7 @@ export function createCursorDevelopmentAdapter({
       writeRoots: sandboxOpts.writeRoots,
       mainRepo: sandboxOpts.mainRepo,
       mainReadOnly: sandboxOpts.mainReadOnly,
+      envelope: effectiveEnvelope,
     });
 
     if (host.blocked_files.length > 0) {
@@ -315,6 +327,20 @@ export function createCursorDevelopmentAdapter({
           source: "approval_store.lookup",
           taskId: task.task_id,
           detail: { approval_id: approval.id, kind: CURSOR_DEVELOP_KIND },
+        }),
+        createEvidenceRecord({
+          epistemic: "VERIFIED",
+          claim: `cursor.cli_config.dir=${localAiCursorConfig.configDir}`,
+          source: "cursor.cli-config",
+          taskId: task.task_id,
+          detail: {
+            config_dir: localAiCursorConfig.configDir,
+            user_permissions_approval_mode: userCursorMode.permissions_approval_mode,
+            user_cli_approval_mode: userCursorMode.cli_approval_mode,
+            user_unrestricted: userCursorMode.user_unrestricted,
+            must_not_trust_user_global: true,
+            note: "agent reads CURSOR_CONFIG_DIR for permissions.json/cli-config.json",
+          },
         }),
         ...host.evidence,
         createEvidenceRecord({
@@ -386,14 +412,27 @@ export function verifyCursorHostOutcome(host) {
           : "fail",
     },
     {
-      id: "write_path",
-      // 내용 변경이 있으면 보안 필수로 승격 — UNKNOWN이면 SUCCESS 불가
+      id: "write_authorization_verified",
+      // ACP WRITE 이벤트는 필수 불변조건이 아님.
+      // PASS: 명시적 ACP WRITE 관측 OR envelope isolated scope host VERIFIED
       required: Boolean(host.has_content_changes),
       security: true,
-      status: host.write_path_observed
+      status: host.write_authorization_verified
         ? "verified"
-        : (host.has_content_changes ? "unknown" : "verified"),
-      detail: "WRITE permission observation",
+        : !host.has_content_changes
+          ? "verified"
+          : (host.write_authorization?.kind === "out_of_envelope" ? "fail" : "unknown"),
+      detail: host.write_authorization?.kind
+        ?? (host.write_path_observed ? "acp_write_observed" : "unverified"),
+    },
+    {
+      id: "main_repo_unchanged",
+      required: true,
+      security: true,
+      status: (host.main_repo_writes?.length ?? 0) > 0 ? "fail" : "verified",
+      detail: (host.main_repo_writes?.length ?? 0) > 0
+        ? host.main_repo_writes.slice(0, 20).join(",")
+        : null,
     },
     {
       id: "acp_error",
