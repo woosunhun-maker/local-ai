@@ -26,6 +26,7 @@ test("collectSystemRuntimeHealth marks unimplemented modules explicitly", async 
       throw error;
     },
     ttsCatalog: { providers: [{ id: "qwen3-tts", state: "ready" }] },
+    taskManagerReady: true,
     now: () => new Date("2026-08-14T01:00:00.000Z"),
   });
 
@@ -34,7 +35,8 @@ test("collectSystemRuntimeHealth marks unimplemented modules explicitly", async 
   assert.equal(runtime.planner_model, LOCAL_EFFECT_PLANNING_MODEL);
   const byName = Object.fromEntries(runtime.services.map((row) => [row.service, row]));
   assert.equal(byName.tool_registry.status, "not_implemented");
-  assert.equal(byName.task_manager.status, "not_implemented");
+  assert.equal(byName.task_manager.status, "ok");
+  assert.equal(byName.evidence_layer.status, "ok");
   assert.equal(byName.llm_conversation.status, "ok");
   assert.equal(byName.tts.status, "ok");
   assert.equal(byName.tts.model, "qwen3-tts");

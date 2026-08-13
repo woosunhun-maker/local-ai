@@ -4,7 +4,7 @@ const GATES_PER_KIND = 4;
 // its automated contract (test) or real runtime path (operation) is verified.
 // Partial implementations, mocks, and design documents count as zero.
 export const PROJECT_PROGRESS_BASELINE = Object.freeze([
-  Object.freeze({ id: "evidence", title: "사실 기준선", testsDone: 3, operationsDone: 1 }),
+  Object.freeze({ id: "evidence", title: "사실 기준선", testsDone: 4, operationsDone: 2 }),
   Object.freeze({ id: "identity", title: "신원·채널 보안", testsDone: 3, operationsDone: 2 }),
   Object.freeze({ id: "models", title: "대화·모델·음성", testsDone: 4, operationsDone: 1 }),
   Object.freeze({ id: "intent", title: "의도·정책", testsDone: 4, operationsDone: 0 }),
@@ -21,12 +21,14 @@ export const LIVE_CAPABILITIES = Object.freeze([
   "격리 Codex 코드 점검·변경 초안 작업 큐와 결과 회신",
   "Mac loopback 보안 서버와 tailnet 접속",
   "iPhone Local AI앱 인증·서명 승인 기반",
+  "system.status 실측 인트로스펙션과 Task Manager 상태 기계",
 ]);
 
 export const NEXT_CAPABILITIES = Object.freeze([
   "브라우저 대행의 완전 자동 붙여넣기·전송",
   "암호화 Keychain 기억으로 확인형 저장소 승격",
-  "진행 상태·백분율·실패 원인을 Telegram에서 실시간 갱신",
+  "Memory 4계층·Tool Registry·Approval 일반화",
+  "Executor/Verifier 본문과 실패 시 재계획 루프",
   "공개 웹 조사 worker와 Gmail·Coupang·Home Assistant Adapter",
 ]);
 

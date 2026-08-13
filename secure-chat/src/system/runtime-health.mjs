@@ -134,6 +134,7 @@ export async function collectSystemRuntimeHealth({
   execFileImpl = execFileAsync,
   readFileImpl = readFile,
   ttsCatalog = null,
+  taskManagerReady = false,
   packageVersion = PACKAGE_VERSION,
   now = () => new Date(),
 } = {}) {
@@ -235,12 +236,29 @@ export async function collectSystemRuntimeHealth({
     }),
     entry({
       service: "task_manager",
-      status: "not_implemented",
+      status: taskManagerReady ? "ok" : "not_implemented",
       model: null,
       pid: null,
       last_health_check: checkedAt,
       version: packageVersion,
-      error: "phase2_pending",
+      error: taskManagerReady ? null : "phase2_pending",
+      detail: Object.freeze({
+        note: taskManagerReady
+          ? "상태 기계·저장소만 구현. Executor/Verifier 본문은 PHASE 4"
+          : "not_ready",
+      }),
+    }),
+    entry({
+      service: "evidence_layer",
+      status: "ok",
+      model: null,
+      pid: null,
+      last_health_check: checkedAt,
+      version: packageVersion,
+      error: null,
+      detail: Object.freeze({
+        epistemics: "VERIFIED,RETRIEVED,INFERRED,UNKNOWN",
+      }),
     }),
     entry({
       service: "health_snapshot_file",

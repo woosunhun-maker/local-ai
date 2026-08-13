@@ -33,7 +33,9 @@ import { ProactiveStore } from "./proactive-store.mjs";
 import { FixedWindowRateLimiter, ratePolicyFor } from "./rate-limiter.mjs";
 import { createRequestSignal } from "./request-lifecycle.mjs";
 import { createStructuredEventLog } from "./structured-event-log.mjs";
-import { collectSystemRuntimeHealth } from "./system/runtime-health.mjs";
+import { runSystemCommand } from "./system/introspection.mjs";
+import { TaskManagerStore } from "./task/task-manager-store.mjs";
+import { createEvidenceRecord } from "./evidence/evidence.mjs";
 import { streamTtsEvents } from "./tts/http-stream.mjs";
 import { createRuntimeTtsRegistry } from "./tts/pinned-runtime.mjs";
 import { SpeechSession } from "./tts/speech-session.mjs";
@@ -66,6 +68,7 @@ const KEYCHAIN_ACCOUNT = "local-ai";
 const TELEGRAM_CONFIG_PATH = `${ROOT}/config/telegram-general.json`;
 const CODEX_BRIDGE_CONFIG_PATH = `${ROOT}/config/codex-bridge.json`;
 const CODEX_TASK_PATH = `${ROOT}/data/codex-bridge/tasks.json`;
+const TASK_MANAGER_PATH = `${ROOT}/data/task-manager/tasks.json`;
 const CODEX_SOURCE_ROOT = `${ROOT}/app/secure-chat`;
 const TELEGRAM_CONFIG_SCRIPT = `${ROOT}/app/secure-chat/scripts/configure-telegram-general.mjs`;
 const CONFIRMED_MEMORY_PATH =
@@ -474,6 +477,8 @@ async function main() {
   const intentShadow = INTENT_SHADOW_MODE === "enabled" ? new IntentShadowMonitor(INTENT_SHADOW_PATH) : null;
   const ttsRegistry = await createRuntimeTtsRegistry();
   const confirmedMemory = await new ConfirmedMemoryStore(CONFIRMED_MEMORY_PATH).initialize();
+  const taskManager = new TaskManagerStore(TASK_MANAGER_PATH, { structuredLog });
+  await taskManager.initialize();
   const ownerActionExecutor = new OwnerActionExecutor({
     approvalStore,
     proactiveStore,
@@ -490,6 +495,21 @@ async function main() {
   await growth.initialize();
   await intentShadow?.initialize();
 
+  async function ownerSystemStatus() {
+    const ttsCatalog = ttsRegistry.catalog();
+    return runSystemCommand("system.status", {
+      healthOptions: {
+        ttsCatalog: {
+          providers: (ttsCatalog.providers ?? []).map((provider) => ({
+            id: provider.id,
+            state: provider.availability?.state ?? "unknown",
+          })),
+        },
+        taskManagerReady: true,
+      },
+      taskSummary: await taskManager.summary(),
+    });
+  }
   const server = http.createServer(async (request, response) => {
     try {
       if (!originAllowed(request)) return json(response, 403, { error: "origin_denied" });
@@ -537,21 +557,103 @@ async function main() {
         if (!hasScope(device, "status") || device.role !== "owner") {
           return json(response, 403, { error: "owner_device_required" });
         }
-        const ttsCatalog = ttsRegistry.catalog();
-        const runtime = await collectSystemRuntimeHealth({
-          ttsCatalog: {
-            providers: (ttsCatalog.providers ?? []).map((provider) => ({
-              id: provider.id,
-              state: provider.availability?.state ?? "unknown",
-            })),
-          },
-        });
+        const result = await ownerSystemStatus();
         await structuredLog.emit("verification_completed", {
           correlationId: structuredLog.correlationId(),
           ingress: "system_status",
-          overall: runtime.overall,
+          overall: result.runtime.overall,
         }).catch(() => {});
-        return json(response, 200, runtime);
+        return json(response, 200, result);
+      }
+      if (request.method === "POST" && url.pathname === "/api/system/command") {
+        if (!hasScope(device, "status") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        const body = await readBody(request);
+        if (body?.command !== "system.status") return json(response, 400, { error: "unsupported_system_command" });
+        return json(response, 200, await ownerSystemStatus());
+      }
+      if (request.method === "GET" && url.pathname === "/api/tasks") {
+        if (!hasScope(device, "status") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        const status = url.searchParams.get("status");
+        const limit = Number(url.searchParams.get("limit") ?? "50");
+        return json(response, 200, {
+          tasks: await taskManager.list({ status: status || null, limit }),
+          summary: await taskManager.summary(),
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/api/tasks") {
+        if (!hasScope(device, "chat") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        try {
+          const body = await readBody(request);
+          const task = await taskManager.create({
+            goal: body?.goal,
+            approvalRequired: body?.approval_required !== false,
+            currentStep: body?.current_step ?? null,
+            nextStep: body?.next_step ?? "analyze",
+            correlationId: typeof body?.correlation_id === "string" ? body.correlation_id : null,
+            evidence: Array.isArray(body?.evidence) ? body.evidence : [],
+          });
+          await audit({
+            event: "task_created",
+            deviceHash: createHash("sha256").update(device.id).digest("hex"),
+            taskHash: createHash("sha256").update(task.task_id).digest("hex"),
+          });
+          return json(response, 201, task);
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "task_create_failed" });
+        }
+      }
+      {
+        const transitionMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/transition$/);
+        if (request.method === "POST" && transitionMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            const body = await readBody(request);
+            const task = await taskManager.transition(transitionMatch[1], {
+              toStatus: body?.to_status,
+              currentStep: body?.current_step,
+              nextStep: body?.next_step,
+              error: body?.error,
+              evidence: Array.isArray(body?.evidence) ? body.evidence : [],
+              correlationId: typeof body?.correlation_id === "string" ? body.correlation_id : null,
+            });
+            return json(response, 200, task);
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "task_transition_failed" });
+          }
+        }
+        const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
+        if (request.method === "GET" && taskMatch) {
+          if (!hasScope(device, "status") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          const task = await taskManager.get(taskMatch[1]);
+          if (!task) return json(response, 404, { error: "task_not_found" });
+          return json(response, 200, task);
+        }
+        if (request.method === "POST" && url.pathname.match(/^\/api\/tasks\/([^/]+)\/evidence$/)) {
+          const evidenceMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/evidence$/);
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            const body = await readBody(request);
+            const record = body?.epistemic
+              ? createEvidenceRecord(body)
+              : body;
+            const task = await taskManager.appendEvidence(evidenceMatch[1], record);
+            return json(response, 200, task);
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "task_evidence_failed" });
+          }
+        }
       }
       if (request.method === "GET" && url.pathname === "/api/memory") {
         if (!hasScope(device, "chat") || device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
