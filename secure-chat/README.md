@@ -1,4 +1,4 @@
-# 나의 Local AI 1.2.0 (build 9)
+# 나의 Local AI 1.2.0 (build 12)
 
 iPhone과 Mac Studio를 Tailscale 사설망으로 직접 연결하는 로컬 AI 앱이다. API는 `127.0.0.1:18791`에만 바인딩되고, iPhone은 tailnet 전용 HTTPS를 통해서만 접근한다. Funnel은 사용하지 않는다.
 
@@ -6,7 +6,7 @@ iPhone과 Mac Studio를 Tailscale 사설망으로 직접 연결하는 로컬 AI 
 
 Telegram은 로컬 일반 대화와 Codex 상태 조회에 쓸 수 있다. 종단간 암호화가 아니므로 Codex 실행 요청은 접수하지 않는다. Codex 점검·초안은 Local AI 앱에서 정확한 요청과 코드 스냅샷 hash, OpenAI 외부 전송 사실을 확인하고 기기 소유자 인증으로 서명한 뒤에만 실행한다.
 
-## 1.2.0 (build 9)에 포함된 기능
+## 1.2.0 (build 12)에 포함된 기능
 
 - ChatGPT형 SwiftUI 대화 화면, 대화 기록·새 대화·Markdown·복사·재생·재생성
 - `자동`·`빠른 대화`·`깊게 생각하기` 모드와 실제 처리 단계·경과 시간·오류·중지 표시
@@ -145,6 +145,7 @@ npm test
 npm start
 ```
 
-네이티브 앱은 `ios/LocalAI.xcodeproj`에 있다. Release 실기기 빌드를 사용하며 현재 소스 버전은 1.2.0(build 9)이다.
+네이티브 앱은 `ios/LocalAI.xcodeproj`에 있다. Release 실기기 빌드를 사용하며 현재 소스 버전은 1.2.0(build 12)이다.
+Personal Team에서는 앱 내 IPA 자동설치가 없다. Mac `/api/status`의 `iosApp.build`와 비교해 뒤처지면 안내만 하고, 설치는 Xcode/`devicectl`로 한다.
 
 데이터와 위협 경계는 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)를 참조한다.

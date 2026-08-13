@@ -288,9 +288,13 @@ actor LocalAIClient {
     }
 
     func checkStatus() async throws {
-        struct StatusResponse: Decodable { let ok: Bool }
-        let status: StatusResponse = try await request(path: "/api/status")
+        _ = try await fetchAppStatus()
+    }
+
+    func fetchAppStatus() async throws -> AppStatus {
+        let status: AppStatus = try await request(path: "/api/status")
         guard status.ok else { throw LocalAIError.malformedResponse }
+        return status
     }
 
     func checkApprovalKeyStatus() async -> ApprovalKeyState {

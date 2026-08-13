@@ -104,6 +104,13 @@ struct SettingsView: View {
                     }
                     .accessibilityHint("로그인된 웹 작업용 Chrome 공유는 고급 설정입니다")
 
+                    Button {
+                        AppRouter.shared.openDevelopmentWork()
+                    } label: {
+                        Label("Cursor / 개발 작업", systemImage: "hammer.fill")
+                    }
+                    .accessibilityHint("Supervisor·cursor.develop 목록과 승인")
+
                     Button { showGrowthCenter = true } label: {
                         Label(
                             approvalKeyState == .repairRequired ? "보안 승인 (재연결 필요)" : "보안 승인 · Codex · 성장",
@@ -121,8 +128,11 @@ struct SettingsView: View {
                     HStack {
                         Text("앱 버전")
                         Spacer()
-                        Text(appVersion).foregroundStyle(.secondary)
+                        Text(appVersionLabel).foregroundStyle(.secondary)
                     }
+                    Text("업데이트는 App Store가 아니라 Mac(Xcode/devicectl) 재설치입니다. 앱이 IPA를 받아 스스로 덮어쓰지 않습니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("설정")
@@ -161,8 +171,10 @@ struct SettingsView: View {
         }
     }
 
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    private var appVersionLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return "\(version) (\(build))"
     }
 
     private func statusRow(title: String, value: String, symbol: String, color: Color) -> some View {

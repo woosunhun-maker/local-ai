@@ -14,6 +14,7 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var connection: ConnectionState = .checking
     @Published private(set) var approvalKeyState: ApprovalKeyState = .checking
+    @Published private(set) var appUpdate: AppUpdateState?
     @Published private(set) var progress: ChatProgress?
     @Published private(set) var activityStartedAt: Date?
     @Published private(set) var activeResponseID: UUID?
@@ -27,7 +28,7 @@ final class ChatViewModel: ObservableObject {
     let playback = SpeechPlaybackController.shared
 
     private let store: ConversationStore
-    private let statusCheck: @Sendable () async throws -> Void
+    private let statusCheck: @Sendable () async throws -> AppStatus
     private let approvalKeyCheck: @Sendable () async -> ApprovalKeyState
     private let streamRequest: @Sendable ([ChatMessage], ChatMode) async throws -> AsyncThrowingStream<ChatStreamEvent, Error>
     private var conversation: Conversation
@@ -37,8 +38,8 @@ final class ChatViewModel: ObservableObject {
 
     init(
         store: ConversationStore,
-        statusCheck: @escaping @Sendable () async throws -> Void = {
-            try await LocalAIClient.shared.checkStatus()
+        statusCheck: @escaping @Sendable () async throws -> AppStatus = {
+            try await LocalAIClient.shared.fetchAppStatus()
         },
         approvalKeyCheck: @escaping @Sendable () async -> ApprovalKeyState = {
             await LocalAIClient.shared.checkApprovalKeyStatus()
@@ -79,15 +80,21 @@ final class ChatViewModel: ObservableObject {
             return
         }
         do {
-            try await statusCheck()
+            let status = try await statusCheck()
             connection = .connected
+            appUpdate = AppUpdateState.from(recommended: status.iosApp)
         } catch {
             connection = .disconnected
             approvalKeyState = .unavailable
+            appUpdate = nil
             return
         }
         approvalKeyState = .checking
         approvalKeyState = await approvalKeyCheck()
+    }
+
+    func dismissAppUpdateBanner() {
+        appUpdate = nil
     }
 
     func setMode(_ newMode: ChatMode) {
@@ -379,6 +386,15 @@ struct ChatView: View {
                 conversationBody
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomArea }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let update = model.appUpdate, update.isBehind {
+                    AppUpdateBanner(
+                        text: update.bannerText,
+                        onOpenDev: { appRouter.openDevelopmentWork() },
+                        onDismiss: { model.dismissAppUpdateBanner() }
+                    )
+                }
+            }
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -392,20 +408,30 @@ struct ChatView: View {
                 }
                 ToolbarItem(placement: .principal) { modeMenu }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { appRouter.openDevelopmentWork() } label: {
-                        Image(systemName: "hammer.fill")
+                    Menu {
+                        Button {
+                            appRouter.openDevelopmentWork()
+                        } label: {
+                            Label("Cursor / 개발", systemImage: "hammer.fill")
+                        }
+                        Button {
+                            appRouter.openCodex()
+                        } label: {
+                            Label("Codex 작업", systemImage: "terminal.fill")
+                        }
+                        Button {
+                            appRouter.showGrowthCenter = true
+                        } label: {
+                            Label("성장 및 승인", systemImage: "checkmark.shield.fill")
+                        }
+                    } label: {
+                        Image(systemName: "square.grid.2x2.fill")
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
-                    .accessibilityLabel("Cursor 개발 작업")
-                    .accessibilityHint("Development Supervisor와 cursor.develop 진행 목록을 엽니다")
-                    Button { appRouter.openCodex() } label: {
-                        Image(systemName: "terminal.fill")
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Codex 작업")
-                    .accessibilityHint("OpenAI Codex로 외부 전송할 계획을 검토하고 Face ID 또는 iPhone 암호로 승인하는 화면을 엽니다")
+                    .accessibilityLabel("작업 메뉴")
+                    .accessibilityHint("Cursor 개발, Codex, 승인 화면을 엽니다")
+
                     Button { model.newConversation() } label: {
                         Image(systemName: "square.and.pencil")
                             .frame(width: 44, height: 44)
@@ -908,5 +934,37 @@ private struct ActivityBar: View {
     private func elapsed(from start: Date, to end: Date) -> String {
         let seconds = max(0, Int(end.timeIntervalSince(start)))
         return seconds < 60 ? "\(seconds)초" : String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct AppUpdateBanner: View {
+    let text: String
+    let onOpenDev: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("앱 업데이트 안내", systemImage: "arrow.down.app.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button("작업 목록", action: onOpenDev)
+                    .buttonStyle(.bordered)
+                Button("닫기", action: onDismiss)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.secondaryBackground.opacity(0.96))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(AppTheme.separator.opacity(0.5)).frame(height: 0.5)
+        }
+        .accessibilityElement(children: .contain)
     }
 }

@@ -11,7 +11,7 @@ final class ChatGenerationTests: XCTestCase {
         let originalID = store.selected.id
         let model = ChatViewModel(
             store: store,
-            statusCheck: {},
+            statusCheck: { AppStatus(ok: true, iosApp: nil) },
             approvalKeyCheck: { .ready },
             streamRequest: { _, _ in
                 AsyncThrowingStream { continuation in
@@ -58,7 +58,7 @@ final class ChatGenerationTests: XCTestCase {
         let store = ConversationStore(directoryURL: directory)
         let model = ChatViewModel(
             store: store,
-            statusCheck: {},
+            statusCheck: { AppStatus(ok: true, iosApp: nil) },
             approvalKeyCheck: { .repairRequired },
             streamRequest: { _, _ in AsyncThrowingStream { $0.finish() } }
         )

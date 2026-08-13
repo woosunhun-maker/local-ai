@@ -45,7 +45,7 @@ import { DiscussionContextStore } from "./memory/discussion-context-store.mjs";
 import { createMemoryContextFacade } from "./memory/context-facade.mjs";
 import { createBuiltinToolRegistry } from "./tools/tool-registry.mjs";
 import { evaluateApprovalPolicy } from "./approval/approval-policy.mjs";
-import { DevelopmentRunStore } from "./supervisor/development-run-store.mjs";
+import { getIosAppReleaseInfo } from "./ios-app-release.mjs";
 import { createDevelopmentSupervisor } from "./supervisor/development-supervisor.mjs";
 import { assertMergeExecutionForbidden } from "./supervisor/merge-to-main-schema.mjs";
 import { streamTtsEvents } from "./tts/http-stream.mjs";
@@ -611,6 +611,7 @@ async function main() {
           approvals: "p256_device_signature_v1",
           activeMemoryCount: await confirmedMemory.countActive(),
           intentShadow: intentShadow ? { enabled: true, metrics: await intentShadow.status() } : { enabled: false },
+          iosApp: getIosAppReleaseInfo(),
         });
       }
       if (request.method === "GET" && url.pathname === "/api/system/status") {

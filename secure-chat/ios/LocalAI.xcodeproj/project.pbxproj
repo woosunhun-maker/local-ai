@@ -33,6 +33,7 @@
 		9A800D5A5CB2BEB44B67F5DB /* LocalAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F932D2E3C5F7B37AE6B83FB /* LocalAIApp.swift */; };
 		A38398D5DD1C80FFB372C31E /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB2FE9362CFCB01278465B4 /* ChatView.swift */; };
 		B0B973D83CE455D8D7735AF3 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48F506ECBC4DC0C41B13416 /* KeychainStore.swift */; };
+		B3E78BC02A0A5EC4290843C6 /* AppUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6A897DF62D9C460170096F /* AppUpdate.swift */; };
 		B3FD3700F88A5779E523177E /* CodexTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EEF7BFE28CD3946BD5978C1 /* CodexTaskTests.swift */; };
 		C88CF2BBB89CB65F53229605 /* DevelopmentWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342C528D4F7157E02B3D05AB /* DevelopmentWorkView.swift */; };
 		C891799E645A6DE33C4EA868 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B018AC246B5BDD9CCE4BAA57 /* SettingsView.swift */; };
@@ -78,6 +79,7 @@
 		9FCC3C24E77B03492751A9D7 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		A3B5D782254D7110E5CE38A2 /* DevelopmentWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopmentWork.swift; sourceTree = "<group>"; };
 		A426E3DB25B7FB6F09BCFD67 /* LocalAI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LocalAI.entitlements; sourceTree = "<group>"; };
+		AB6A897DF62D9C460170096F /* AppUpdate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdate.swift; sourceTree = "<group>"; };
 		AC77893B030276C9DE8C2AE6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B018AC246B5BDD9CCE4BAA57 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B9D57F5CA1CC18F197712CC0 /* ApprovalChallenge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalChallenge.swift; sourceTree = "<group>"; };
@@ -163,6 +165,7 @@
 			isa = PBXGroup;
 			children = (
 				B9D57F5CA1CC18F197712CC0 /* ApprovalChallenge.swift */,
+				AB6A897DF62D9C460170096F /* AppUpdate.swift */,
 				E26A1ECBF0F0079184479D13 /* ChatMessage.swift */,
 				59866F261593FD9D7F6AC9AD /* CodexTask.swift */,
 				198EEC931F14B65CC4D6C597 /* ConnectionState.swift */,
@@ -321,6 +324,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				09A8A7B36687D1F7FD6F61BF /* AppTheme.swift in Sources */,
+				B3E78BC02A0A5EC4290843C6 /* AppUpdate.swift in Sources */,
 				0D655140E16666D51A7F99A1 /* ApprovalChallenge.swift in Sources */,
 				5FEB5BFBEB3A63D5ECB8BE78 /* ApprovalSigningKey.swift in Sources */,
 				F7E36FCBC9E086C9ABEE0A46 /* AskLocalAIIntent.swift in Sources */,
@@ -386,7 +390,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LocalAI/Resources/LocalAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 8UUD85JPJ2;
 				INFOPLIST_FILE = LocalAI/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -546,7 +550,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LocalAI/Resources/LocalAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = 8UUD85JPJ2;
 				INFOPLIST_FILE = LocalAI/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

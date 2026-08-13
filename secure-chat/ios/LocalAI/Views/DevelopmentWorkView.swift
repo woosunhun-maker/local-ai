@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Cursor / Development Supervisor 작업 목록 (읽기 + 관련 승인 바로가기).
+/// Cursor / Development Supervisor 작업 목록 — 자동 새로고침 + Face ID 승인.
 struct DevelopmentWorkView: View {
     let approvalKeyState: ApprovalKeyState
     let onRepairPairing: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var runs: [DevelopmentRunSummary] = []
     @State private var tasks: [OwnerTaskSummary] = []
     @State private var approvals: [PendingApproval] = []
@@ -18,6 +19,8 @@ struct DevelopmentWorkView: View {
     @State private var decidingID: String?
     @State private var decisionError: String?
     @State private var confirmRepairPairing = false
+    @State private var autoRefreshEnabled = true
+    @State private var pollingTask: Task<Void, Never>?
 
     private var activeRuns: [DevelopmentRunSummary] {
         runs.filter { !$0.isTerminal }
@@ -37,9 +40,16 @@ struct DevelopmentWorkView: View {
         approvals.filter(\.isDevelopmentOrCursorApproval)
     }
 
+    private var attentionCount: Int {
+        developmentApprovals.count
+            + activeRuns.filter(\.needsOwnerAttention).count
+            + cursorTasks.filter { $0.status == "WAITING_APPROVAL" }.count
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                summarySection
                 keyStatusSection
                 developmentApprovalsSection
                 activeRunsSection
@@ -48,10 +58,13 @@ struct DevelopmentWorkView: View {
                     recentDoneSection
                 }
             }
-            .refreshable { await reload() }
+            .listStyle(.insetGrouped)
+            .refreshable { await reload(manual: true) }
             .overlay {
                 if refreshing && runs.isEmpty && tasks.isEmpty && approvals.isEmpty {
                     ProgressView("작업 목록 불러오는 중")
+                        .padding(20)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
             .navigationTitle("Cursor / 개발")
@@ -61,10 +74,18 @@ struct DevelopmentWorkView: View {
                     Button("닫기") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    refreshButton
+                    HStack(spacing: 12) {
+                        Toggle(isOn: $autoRefreshEnabled) {
+                            Image(systemName: autoRefreshEnabled ? "arrow.triangle.2.circlepath" : "pause.circle")
+                        }
+                        .toggleStyle(.button)
+                        .accessibilityLabel(autoRefreshEnabled ? "자동 새로고침 켜짐" : "자동 새로고침 꺼짐")
+                        refreshButton
+                    }
                 }
             }
         }
+        .tint(AppTheme.accent)
         .alert("승인 처리 오류", isPresented: Binding(
             get: { decisionError != nil },
             set: { if !$0 { decisionError = nil } }
@@ -81,16 +102,68 @@ struct DevelopmentWorkView: View {
             Button("다시 페어링", role: .destructive) { onRepairPairing() }
             Button("취소", role: .cancel) {}
         }
-        .task { await reload() }
+        .task {
+            await reload(manual: true)
+            startPollingIfNeeded()
+        }
+        .onChange(of: autoRefreshEnabled) { _, enabled in
+            if enabled { startPollingIfNeeded() } else { stopPolling() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { startPollingIfNeeded() }
+            else { stopPolling() }
+        }
+        .onDisappear { stopPolling() }
     }
 
     private var refreshButton: some View {
-        Button { Task { await reload() } } label: {
+        Button { Task { await reload(manual: true) } } label: {
             if refreshing { ProgressView().controlSize(.small) }
             else { Image(systemName: "arrow.clockwise") }
         }
         .disabled(refreshing || decidingID != nil)
-        .accessibilityLabel("Cursor 작업 목록 새로고침")
+        .accessibilityLabel("지금 새로고침")
+    }
+
+    private var summarySection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    summaryChip(title: "승인", value: developmentApprovals.count, emphasis: !developmentApprovals.isEmpty)
+                    summaryChip(title: "진행", value: activeRuns.count, emphasis: false)
+                    summaryChip(title: "Cursor", value: cursorTasks.count, emphasis: cursorTasks.contains { $0.status == "WAITING_APPROVAL" })
+                }
+                if attentionCount > 0 {
+                    Label("소유자 확인 \(attentionCount)건", systemImage: "exclamationmark.bubble.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
+                } else {
+                    Label("지금 확인할 승인 없음", systemImage: "checkmark.seal.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.accent)
+                }
+                Text(updatedLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func summaryChip(title: String, value: Int, emphasis: Bool) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)")
+                .font(.title3.monospacedDigit().weight(.semibold))
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(emphasis ? AppTheme.accent.opacity(0.14) : AppTheme.secondaryBackground)
+        )
     }
 
     private var keyStatusSection: some View {
@@ -100,22 +173,21 @@ struct DevelopmentWorkView: View {
                     .foregroundStyle(.orange)
             } else {
                 Label(
-                    approvalKeyState == .ready ? "승인 키 준비됨 (Face ID 필수)" : "승인 키 상태 확인 중",
+                    approvalKeyState == .ready ? "Face ID 승인 준비됨" : "승인 키 확인 중",
                     systemImage: approvalKeyState == .ready ? "faceid" : "key.fill"
                 )
-                .foregroundStyle(approvalKeyState == .ready ? .green : .secondary)
+                .foregroundStyle(approvalKeyState == .ready ? AppTheme.accent : .secondary)
             }
+            Toggle("목록 자동 새로고침", isOn: $autoRefreshEnabled)
         } footer: {
-            Text(updatedLabel)
+            Text("활성 작업이 있으면 수초마다 Mac 상태를 다시 읽습니다. IPA 자동 설치는 하지 않습니다.")
         }
     }
 
     private var developmentApprovalsSection: some View {
         Section {
             if let approvalsError {
-                Text(approvalsError)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                Text(approvalsError).font(.footnote).foregroundStyle(.red)
             } else if developmentApprovals.isEmpty {
                 Text("대기 중인 Cursor/Envelope 승인 없음")
                     .foregroundStyle(.secondary)
@@ -138,9 +210,7 @@ struct DevelopmentWorkView: View {
     private var activeRunsSection: some View {
         Section {
             if let runsError {
-                Text(runsError)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                Text(runsError).font(.footnote).foregroundStyle(.red)
             } else if activeRuns.isEmpty {
                 Text("진행 중인 Development Run 없음")
                     .foregroundStyle(.secondary)
@@ -157,9 +227,7 @@ struct DevelopmentWorkView: View {
     private var cursorTasksSection: some View {
         Section {
             if let tasksError {
-                Text(tasksError)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                Text(tasksError).font(.footnote).foregroundStyle(.red)
             } else if cursorTasks.isEmpty {
                 Text("진행 중인 cursor.develop 태스크 없음")
                     .foregroundStyle(.secondary)
@@ -183,14 +251,38 @@ struct DevelopmentWorkView: View {
 
     private var updatedLabel: String {
         guard let updatedAt else { return "아직 확인하지 못함" }
-        return "최근 확인 \(updatedAt.formatted(date: .omitted, time: .shortened))"
+        let auto = autoRefreshEnabled ? " · 자동 갱신" : ""
+        return "최근 확인 \(updatedAt.formatted(date: .omitted, time: .shortened))\(auto)"
+    }
+
+    private func startPollingIfNeeded() {
+        stopPolling()
+        guard autoRefreshEnabled, scenePhase == .active else { return }
+        pollingTask = Task {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    try Task.checkCancellation()
+                    await reload(manual: false)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopPolling() {
+        pollingTask?.cancel()
+        pollingTask = nil
     }
 
     @MainActor
-    private func reload() async {
+    private func reload(manual: Bool) async {
         let current = UUID()
         reloadID = current
-        refreshing = true
+        if manual { refreshing = true }
 
         async let runsReq = Self.capture { try await LocalAIClient.shared.fetchDevelopmentRuns(limit: 30) }
         async let tasksReq = Self.capture { try await LocalAIClient.shared.fetchOwnerTasks(limit: 40) }
@@ -257,11 +349,9 @@ private struct DevelopmentRunRow: View {
     let run: DevelopmentRunSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(run.statusLabelKorean)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(run.needsOwnerAttention ? Color.orange : Color.secondary)
+                statusPill(run.statusLabelKorean, attention: run.needsOwnerAttention)
                 Spacer()
                 Text(String(run.runId.prefix(8)))
                     .font(.caption2.monospaced())
@@ -277,15 +367,9 @@ private struct DevelopmentRunRow: View {
                     .lineLimit(1)
             }
             if let error = run.error, !error.isEmpty {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
+                Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
             } else if let blocked = run.blockedReason, !blocked.isEmpty {
-                Text(blocked)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
+                Text(blocked).font(.caption).foregroundStyle(.orange).lineLimit(2)
             }
         }
         .padding(.vertical, 4)
@@ -298,21 +382,15 @@ private struct OwnerCursorTaskRow: View {
     let task: OwnerTaskSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(task.statusLabelKorean)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(task.status == "WAITING_APPROVAL" ? Color.orange : Color.secondary)
+                statusPill(task.statusLabelKorean, attention: task.status == "WAITING_APPROVAL")
                 Spacer()
                 if let kind = task.bindings?.cursor?.kind {
-                    Text(kind)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    Text(kind).font(.caption2).foregroundStyle(.tertiary)
                 }
             }
-            Text(task.goal)
-                .font(.body)
-                .lineLimit(3)
+            Text(task.goal).font(.body).lineLimit(3)
             if let approvalId = task.bindings?.cursor?.approvalId {
                 Text("승인 \(approvalId.prefix(20))…")
                     .font(.caption2.monospaced())
@@ -332,15 +410,9 @@ private struct DevelopmentApprovalRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(approval.title)
-                .font(.headline)
-            Text(approval.kind)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-            Text(approval.summary)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(expanded ? nil : 3)
+            Text(approval.title).font(.headline)
+            Text(approval.kind).font(.caption.monospaced()).foregroundStyle(.secondary)
+            Text(approval.summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(expanded ? nil : 3)
             Button(expanded ? "본문 접기" : "승인할 정확한 내용 펼치기") {
                 expanded.toggle()
             }
@@ -372,12 +444,21 @@ private struct DevelopmentApprovalRow: View {
             if busy {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Face ID / 암호 확인 중")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("Face ID / 암호 확인 중").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
         .padding(.vertical, 6)
     }
+}
+
+private func statusPill(_ title: String, attention: Bool) -> some View {
+    Text(title)
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .foregroundStyle(attention ? Color.orange : AppTheme.accent)
+        .background(
+            Capsule().fill(attention ? Color.orange.opacity(0.14) : AppTheme.accent.opacity(0.12))
+        )
 }
