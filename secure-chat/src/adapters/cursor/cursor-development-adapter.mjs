@@ -9,7 +9,7 @@ import {
   createCursorPermissionBridge,
   CURSOR_DEVELOP_KIND,
 } from "./permission-bridge.mjs";
-import { collectCursorHostResult } from "./host-result-collector.mjs";
+import { collectCursorHostResult, captureGitBaseline } from "./host-result-collector.mjs";
 import { CURSOR_PROJECT_ROOT } from "./sandbox.mjs";
 
 function fail(code, statusCode = 400) {
@@ -90,10 +90,22 @@ export function createCursorDevelopmentAdapter({
     prompt,
     testCommand = null,
     channel = "local_owner_app",
+    projectRoot: runProjectRoot = null,
+    writeRoots = null,
+    mainRepo = null,
+    mainReadOnly = false,
   }) {
     if (channel === "telegram") fail("telegram_cursor_develop_forbidden", 403);
     if (typeof prompt !== "string" || prompt.trim().length < 8) fail("invalid_cursor_prompt");
     if (task?.approval_required !== true) fail("cursor_develop_requires_approval_flag", 409);
+
+    const effectiveRoot = runProjectRoot ?? projectRoot;
+    const sandboxOpts = {
+      projectRoot: effectiveRoot,
+      writeRoots: writeRoots ?? (task?.bindings?.supervisor?.write_roots ?? null),
+      mainRepo: mainRepo ?? task?.bindings?.supervisor?.main_repo ?? null,
+      mainReadOnly: mainReadOnly || task?.bindings?.supervisor?.main_read_only === true,
+    };
 
     const ensured = await ensureTaskApproval({
       task,
@@ -146,10 +158,12 @@ export function createCursorDevelopmentAdapter({
       });
     }
 
+    const baseline = await captureGitBaseline({ cwd: effectiveRoot });
+
     const startedAt = new Date(now()).toISOString();
     const client = createAcpClient({
       agentPath,
-      cwd: projectRoot,
+      cwd: effectiveRoot,
       env: {
         ...process.env,
         PATH: `${process.env.HOME}/.local/bin:/opt/homebrew/bin:${process.env.PATH ?? ""}`,
@@ -162,6 +176,11 @@ export function createCursorDevelopmentAdapter({
     let cancelled = false;
     let runError = null;
     const updates = [];
+    const permissionEvents = [];
+
+    const writeRootLabel = Array.isArray(sandboxOpts.writeRoots) && sandboxOpts.writeRoots.length > 0
+      ? sandboxOpts.writeRoots.join(", ")
+      : effectiveRoot;
 
     try {
       await client.start();
@@ -173,13 +192,16 @@ export function createCursorDevelopmentAdapter({
 
       const boundedPrompt = [
         "You are running under Local AI CursorDevelopmentAdapter.",
-        `Project root (only writable area): ${projectRoot}`,
-        "Do NOT modify diol-os/, /Users/hun/PrivateAI, or any path outside the project root.",
+        `Writable roots only: ${writeRootLabel}`,
+        sandboxOpts.mainReadOnly
+          ? `Main repo is READ-ONLY: ${sandboxOpts.mainRepo ?? "main"}`
+          : null,
+        "Do NOT modify diol-os/, /Users/hun/PrivateAI, or any path outside writable roots.",
         "Do NOT git commit, push, or deploy.",
         "Make the smallest safe change requested below, then stop.",
         "",
         prompt.trim(),
-      ].join("\n");
+      ].filter(Boolean).join("\n");
 
       const promptResult = await client.prompt({
         sessionId,
@@ -187,10 +209,22 @@ export function createCursorDevelopmentAdapter({
         onUpdate: (params) => {
           updates.push(params);
         },
-        onPermission: async (params) => bridge.decide(params?.toolCall ?? params, {
-          taskId: task.task_id,
-          sessionId,
-        }),
+        onPermission: async (params) => {
+          const decision = await bridge.decide(params?.toolCall ?? params, {
+            taskId: task.task_id,
+            sessionId,
+            ...sandboxOpts,
+          });
+          permissionEvents.push({
+            at: new Date(now()).toISOString(),
+            risk: decision.risk,
+            optionId: decision.optionId,
+            reason: decision.reason,
+            approval_id: decision.approval_id,
+            escalated_from: decision.escalated_from ?? null,
+          });
+          return decision;
+        },
       });
       stopReason = promptResult?.stopReason ?? null;
     } catch (error) {
@@ -219,7 +253,12 @@ export function createCursorDevelopmentAdapter({
       error: runError,
       cancelled,
       testCommand,
-      cwd: projectRoot,
+      cwd: effectiveRoot,
+      baseline,
+      permissionEvents,
+      writeRoots: sandboxOpts.writeRoots,
+      mainRepo: sandboxOpts.mainRepo,
+      mainReadOnly: sandboxOpts.mainReadOnly,
     });
 
     if (host.blocked_files.length > 0) {
@@ -230,6 +269,7 @@ export function createCursorDevelopmentAdapter({
         approval_status: approval.status,
         session_id: sessionId,
         host,
+        permission_events: permissionEvents,
         evidence: Object.freeze([
           ...host.evidence,
           createEvidenceRecord({
@@ -254,7 +294,9 @@ export function createCursorDevelopmentAdapter({
           ? `${host.test_command} exit=${host.test_exit_code}`
           : null,
         verification: host.status,
-        rollbackReference: `cursor-diff:${host.diff_hash.slice(0, 16)}`,
+        rollbackReference: host.diff_hash
+          ? `cursor-diff:${host.diff_hash.slice(0, 16)}`
+          : `cursor-session:${sessionId}`,
       }).catch(() => null);
     }
 
@@ -265,6 +307,7 @@ export function createCursorDevelopmentAdapter({
       approval_status: approval.status,
       session_id: sessionId,
       host,
+      permission_events: Object.freeze(permissionEvents),
       evidence: Object.freeze([
         createEvidenceRecord({
           epistemic: "VERIFIED",
@@ -293,32 +336,117 @@ export function createCursorDevelopmentAdapter({
   });
 }
 
+/**
+ * Cursor host 관측을 구조화 checks로 검증.
+ * 보안 필수 항목이 UNKNOWN/PARTIAL이면 PASS/all_expectations_verified 불가.
+ */
 export function verifyCursorHostOutcome(host) {
   if (!host) {
-    return Object.freeze({ result: "UNKNOWN", reason: "missing_host_result" });
+    return Object.freeze({
+      result: "UNKNOWN",
+      reason: "missing_host_result",
+      checks: Object.freeze([]),
+    });
   }
-  if (host.blocked_files?.length > 0) {
-    return Object.freeze({ result: "FAIL", reason: "forbidden_paths_changed" });
-  }
+
+  const checks = [
+    {
+      id: "session",
+      required: true,
+      security: true,
+      status: host.session_id ? "verified" : "unknown",
+      detail: host.session_id ?? null,
+    },
+    {
+      id: "sandbox",
+      required: true,
+      security: true,
+      status: (host.blocked_files?.length ?? 0) > 0 ? "fail" : "verified",
+    },
+    {
+      id: "diff_hash_content",
+      required: true,
+      security: true,
+      status: host.diff_hash
+        && host.diff_hash_kind
+        && host.diff_hash_kind !== "unresolved"
+        && (host.has_content_changes ? host.diff_hash_kind === "canonical_patch" || host.diff_hash_kind === "deletion_manifest" : true)
+        ? "verified"
+        : (host.has_content_changes ? "unknown" : "verified"),
+      detail: host.diff_hash_kind ?? null,
+    },
+    {
+      id: "test",
+      required: Boolean(host.test_command),
+      security: false,
+      status: !host.test_command
+        ? "verified"
+        : host.test_exit_code === 0
+          ? "verified"
+          : "fail",
+    },
+    {
+      id: "write_path",
+      // 내용 변경이 있으면 보안 필수로 승격 — UNKNOWN이면 SUCCESS 불가
+      required: Boolean(host.has_content_changes),
+      security: true,
+      status: host.write_path_observed
+        ? "verified"
+        : (host.has_content_changes ? "unknown" : "verified"),
+      detail: "WRITE permission observation",
+    },
+    {
+      id: "acp_error",
+      required: true,
+      security: false,
+      status: host.error ? "fail" : "verified",
+    },
+  ];
+
   if (host.cancelled && host.error) {
-    return Object.freeze({ result: "UNKNOWN", reason: "cancelled" });
+    return Object.freeze({
+      result: "UNKNOWN",
+      reason: "cancelled",
+      checks: Object.freeze(checks),
+    });
   }
-  if (host.error) {
-    return Object.freeze({ result: "FAIL", reason: "acp_error" });
+
+  // verifyTaskOutcome checks 경로와 동일한 판정
+  const failed = checks.filter((c) => c.status === "fail");
+  const securityGaps = checks.filter(
+    (c) => c.security && (c.status === "unknown" || c.status === "partial")
+      && c.required !== false,
+  );
+
+  if (failed.length > 0) {
+    return Object.freeze({
+      result: "FAIL",
+      reason: `checks_failed:${failed.map((c) => c.id).join(",")}`,
+      checks: Object.freeze(checks),
+    });
   }
-  if (host.test_command && host.test_exit_code !== 0) {
-    return Object.freeze({ result: "FAIL", reason: "test_failed" });
+  if (securityGaps.length > 0) {
+    return Object.freeze({
+      result: "UNKNOWN",
+      reason: `security_expectation_unknown:${securityGaps.map((c) => c.id).join(",")}`,
+      checks: Object.freeze(checks),
+      expectations: Object.freeze([]),
+    });
   }
-  if (!host.diff_hash || !host.session_id) {
-    return Object.freeze({ result: "UNKNOWN", reason: "insufficient_host_observation" });
+
+  const warnings = checks.filter((c) => c.warning === true);
+  if (warnings.length > 0) {
+    return Object.freeze({
+      result: "PASS_WITH_WARNINGS",
+      reason: "required_verified_with_warnings",
+      checks: Object.freeze(checks),
+    });
   }
+
   return Object.freeze({
     result: "PASS",
-    reason: "host_verified_cursor_session",
-    expectations: Object.freeze([
-      { claim_includes: "cursor.session.status=" },
-      { claim_includes: "host.git.diff_hash=" },
-    ]),
+    reason: "all_expectations_verified",
+    checks: Object.freeze(checks),
   });
 }
 

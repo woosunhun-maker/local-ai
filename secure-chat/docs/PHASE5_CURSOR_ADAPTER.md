@@ -55,16 +55,29 @@ POST /api/tasks/:id/run
 | 등급 | 처리 |
 |------|------|
 | READ | `allow-once` 자동 가능 |
-| EXECUTE (allowlist) | `allow-once` 자동 가능 |
+| EXECUTE (allowlist: test/lint/typecheck/build/git status·diff 등) | `allow-once` 자동 가능 |
 | WRITE | ApprovalStore 대기 → `allow-once`만 |
 | HIGH RISK | ApprovalStore 대기 또는 거부 |
 | — | **`allow-always` 사용 금지** |
 
+Cursor가 permission type을 `EXECUTE`로 보내도, Local AI가 shell command의
+filesystem effect(`>`, `tee`, `touch`, `mkdir`, `rm`, `mv`, `cp` 등)를 별도 분류해
+WRITE 또는 HIGH_RISK로 승격한다.
+
 ## Host collector (VERIFIED)
 
-task_id, session_id, 시작/종료, stop/exit/error/cancel, 변경 파일, git status/diff/hash, test 명령/exit code
+- task 시작 시 git baseline snapshot
+- tracked/untracked/deleted/renamed canonical change set + content hash
+- empty tracked-diff를 실변경 증거로 쓰지 않음
+- pre-existing vs task-created 변경 구분
+- WRITE path 미관측 + 내용 변경 → Verifier UNKNOWN (SUCCESS 불가)
 
 Cursor 자연어 “완료”는 INFERRED이며 SUCCESS 근거가 아님.
+
+## Verifier
+
+결과: `PASS` | `PASS_WITH_WARNINGS` | `FAIL` | `UNKNOWN`
+필수/보안 expectation이 UNKNOWN 또는 PARTIAL이면 `all_expectations_verified` 금지.
 
 ## 구현 파일
 

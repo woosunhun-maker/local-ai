@@ -246,6 +246,21 @@ export function createBuiltinToolRegistry({
   });
 
   registry.register({
+    tool_name: "development.supervisor",
+    capability: "orchestrate_self_development_loop",
+    description: "Development Supervisor 상위 루프 (Discussion→Proposal→Cursor)",
+    enabled: true,
+    available: true,
+    risk_level: "HIGH",
+    allowed_channels: ["local_owner_app"],
+    approval_requirement: "development_envelope_then_leaf_approvals",
+    input_contract: { schema: "local-ai.development-run.v1" },
+    output_contract: { run_status: "DONE|BLOCKED|WAITING_*" },
+    implementation: "src/supervisor/development-supervisor.mjs",
+    executes_effects: true,
+  });
+
+  registry.register({
     tool_name: "tts.stream",
     capability: "synthesize_speech",
     description: "로컬 TTS 스트림",

@@ -118,6 +118,20 @@ function publicBindings(bindings) {
       session_id: bindings.cursor.session_id ?? null,
     });
   }
+  if (bindings.supervisor && typeof bindings.supervisor === "object") {
+    out.supervisor = Object.freeze({
+      run_id: bindings.supervisor.run_id ?? null,
+      envelope_digest: bindings.supervisor.envelope_digest ?? null,
+      worktree_path: bindings.supervisor.worktree_path ?? null,
+      write_roots: Object.freeze([...(bindings.supervisor.write_roots ?? [])]),
+      main_repo: bindings.supervisor.main_repo ?? null,
+      main_read_only: bindings.supervisor.main_read_only === true,
+      success_criteria_digest: bindings.supervisor.success_criteria_digest ?? null,
+      success_criteria: Object.freeze([...(bindings.supervisor.success_criteria ?? [])]),
+      out_of_scope: Object.freeze([...(bindings.supervisor.out_of_scope ?? [])]),
+      allowed_paths: Object.freeze([...(bindings.supervisor.allowed_paths ?? [])]),
+    });
+  }
   return Object.freeze(out);
 }
 

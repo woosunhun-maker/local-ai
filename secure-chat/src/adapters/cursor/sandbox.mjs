@@ -1,5 +1,8 @@
 /**
  * Cursor 개발 작업 sandbox — 허용 root와 금지 경로를 강제한다.
+ *
+ * Self-development: writeRoots가 주어지면 해당 worktree만 쓰기 허용.
+ * main repo는 read-only (writeRoots에 없을 때 쓰기 거부).
  */
 import { realpath } from "node:fs/promises";
 import path from "node:path";
@@ -21,8 +24,21 @@ export function isPathInsideRoot(candidate, root) {
   return normalized === normalizedRoot || normalized.startsWith(`${normalizedRoot}${path.sep}`);
 }
 
+/**
+ * @param {string} candidate
+ * @param {{
+ *   projectRoot?: string,
+ *   writeRoots?: string[]|null,
+ *   mainRepo?: string|null,
+ *   mainReadOnly?: boolean,
+ *   forbiddenPrefixes?: string[],
+ * }} options
+ */
 export function assertWritablePath(candidate, {
   projectRoot = CURSOR_PROJECT_ROOT,
+  writeRoots = null,
+  mainRepo = null,
+  mainReadOnly = false,
   forbiddenPrefixes = CURSOR_FORBIDDEN_PREFIXES,
 } = {}) {
   if (typeof candidate !== "string" || !candidate.trim()) fail("invalid_sandbox_path");
@@ -37,7 +53,27 @@ export function assertWritablePath(candidate, {
     }
   }
 
-  if (!isPathInsideRoot(absolute, projectRoot)) fail("sandbox_outside_project_root");
+  const roots = Array.isArray(writeRoots) && writeRoots.length > 0
+    ? writeRoots.map((root) => path.resolve(root))
+    : [path.resolve(projectRoot)];
+
+  const insideWriteRoot = roots.some((root) => isPathInsideRoot(absolute, root));
+  if (!insideWriteRoot) fail("sandbox_outside_write_root");
+
+  // main read-only: writeRoots가 worktree만이면 main은 자동 거부.
+  // 명시적 mainReadOnly + mainRepo가 writeRoots에 없으면 이중 확인.
+  if (mainReadOnly && mainRepo) {
+    const main = path.resolve(mainRepo);
+    if (isPathInsideRoot(absolute, main) && !roots.some((root) => root === main || isPathInsideRoot(root, main) && root !== main)) {
+      // path is under main AND not under a separate write root that is outside... 
+      // Actually worktree is outside main. If absolute is under main, reject.
+      const underDedicatedWorktree = roots.some((root) => root !== main && isPathInsideRoot(absolute, root));
+      if (!underDedicatedWorktree && isPathInsideRoot(absolute, main)) {
+        fail("sandbox_main_repo_read_only");
+      }
+    }
+  }
+
   return absolute;
 }
 

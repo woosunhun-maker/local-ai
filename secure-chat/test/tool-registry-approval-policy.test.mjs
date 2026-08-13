@@ -23,7 +23,7 @@ test("tool registry separates enabled policy from available runtime", () => {
 
 test("Telegram cannot execute effect tools even with approval flag", () => {
   const registry = createBuiltinToolRegistry();
-  for (const toolName of ["web_task.execute", "owner.action.execute", "codex.enqueue", "cursor.develop"]) {
+  for (const toolName of ["web_task.execute", "owner.action.execute", "codex.enqueue", "cursor.develop", "development.supervisor"]) {
     assert.throws(
       () => assertToolExecutionAllowed({
         registry,

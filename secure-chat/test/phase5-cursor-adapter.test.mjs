@@ -20,6 +20,7 @@ import {
 } from "../src/adapters/cursor/sandbox.mjs";
 import {
   classifyCursorPermission,
+  classifyShellCommandEffect,
   createCursorPermissionBridge,
 } from "../src/adapters/cursor/permission-bridge.mjs";
 import {
@@ -27,7 +28,12 @@ import {
   verifyCursorHostOutcome,
   cursorDevelopApprovalId,
 } from "../src/adapters/cursor/cursor-development-adapter.mjs";
-import { collectHostGitSnapshot } from "../src/adapters/cursor/host-result-collector.mjs";
+import {
+  captureGitBaseline,
+  buildCanonicalChangeSet,
+  collectHostGitSnapshot,
+  collectCursorHostResult,
+} from "../src/adapters/cursor/host-result-collector.mjs";
 import { createEvidenceRecord } from "../src/evidence/evidence.mjs";
 import { verifyTaskOutcome } from "../src/verifier/task-verifier.mjs";
 
@@ -51,7 +57,7 @@ async function approve(store, deviceId, approval, privateKey) {
   });
 }
 
-function mockAcpFactory({ permissionToolCall = null, failPrompt = false } = {}) {
+function mockAcpFactory({ permissionToolCall = null, failPrompt = false, onPrompt = null } = {}) {
   return () => ({
     start: async () => ({ pid: 42 }),
     initialize: async () => ({ protocolVersion: 1 }),
@@ -59,6 +65,7 @@ function mockAcpFactory({ permissionToolCall = null, failPrompt = false } = {}) 
     newSession: async () => ({ sessionId: "11111111-2222-4333-8444-555555555555" }),
     prompt: async ({ onPermission }) => {
       if (failPrompt) throw new Error("acp_prompt_failed");
+      if (typeof onPrompt === "function") await onPrompt();
       if (permissionToolCall && onPermission) {
         const decision = await onPermission({ toolCall: permissionToolCall });
         if (decision?.optionId !== "allow-once") throw new Error("permission_rejected");
@@ -102,11 +109,45 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
     assert.equal(classifyCursorPermission({
       kind: "shell",
       title: "npm test --prefix secure-chat",
+      rawInput: { command: "npm test --prefix secure-chat" },
     }).auto_allow, true);
     assert.equal(classifyCursorPermission({
       kind: "shell",
       title: "git push origin main",
+      rawInput: { command: "git push origin main" },
     }).risk, "HIGH_RISK");
+  });
+
+  test("EXECUTE shell with filesystem write escalates to WRITE or HIGH_RISK", () => {
+    const cases = [
+      { command: "echo LIVE_E2E_OK > test/fixtures/marker.txt", risk: "WRITE" },
+      { command: "printf 'x' >> secure-chat/out.txt", risk: "WRITE" },
+      { command: "cat src/a.mjs | tee out.mjs", risk: "WRITE" },
+      { command: "touch new-file.txt", risk: "WRITE" },
+      { command: "mkdir -p tmp/live", risk: "WRITE" },
+      { command: "rm -f marker.txt", risk: "HIGH_RISK" },
+      { command: "mv a.txt b.txt", risk: "WRITE" },
+      { command: "cp a.txt b.txt", risk: "WRITE" },
+      { command: "npm test", risk: "EXECUTE", auto_allow: true },
+      { command: "git status", risk: "EXECUTE", auto_allow: true },
+      { command: "git diff", risk: "EXECUTE", auto_allow: true },
+      { command: "npm run lint", risk: "EXECUTE", auto_allow: true },
+    ];
+    for (const item of cases) {
+      const effect = classifyShellCommandEffect(item.command);
+      assert.equal(effect.risk, item.risk, item.command);
+      if (item.auto_allow) assert.equal(effect.auto_allow, true, item.command);
+      if (item.risk === "WRITE" || item.risk === "HIGH_RISK") {
+        const asExecute = classifyCursorPermission({
+          kind: "execute",
+          title: item.command,
+          rawInput: { command: item.command },
+        });
+        assert.equal(asExecute.risk, item.risk, `cursor EXECUTE bypass: ${item.command}`);
+        assert.equal(asExecute.auto_allow, false, item.command);
+        assert.ok(asExecute.escalated_from === "EXECUTE" || asExecute.reason.includes("shell"));
+      }
+    }
   });
 
   test("telegram cannot run cursor.develop via policy or orchestrator", async () => {
@@ -229,9 +270,7 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
       const pending = await approvalStore.get(waiting.approval_id);
       await approve(approvalStore, deviceId, pending, keys.privateKey);
 
-      // host 측 작은 변경을 미리 만들어 collector가 관측
-      await writeFile(join(dir, "README.md"), "# fixture\n# cursor-slice\n");
-
+      // 작업 트리 변경 없이 ACP만 성공 → write_path 불필요, SUCCESS
       const done = await orch.run({
         taskId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         toolName: "cursor.develop",
@@ -242,7 +281,7 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
       assert.equal(done.verification.result, "PASS");
       assert.ok(done.session_id);
       assert.ok(done.host.diff_hash);
-      assert.ok(done.task.evidence.some((e) => e.epistemic === "VERIFIED" && e.claim.includes("host.git.diff_hash=")));
+      assert.equal(done.host.diff_hash_kind, "no_task_changes");
       assert.ok(done.task.evidence.some((e) => e.epistemic === "VERIFIED" && e.claim.includes("cursor.session.status=")));
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -291,23 +330,160 @@ describe("PHASE5 CursorDevelopmentAdapter", { concurrency: false }, () => {
     assert.equal(result.result, "FAIL");
   });
 
-  test("verifyCursorHostOutcome requires session and diff hash", () => {
+  test("verifyCursorHostOutcome: security UNKNOWN blocks PASS", () => {
     assert.equal(verifyCursorHostOutcome({
       session_id: null,
       diff_hash: "abc",
+      diff_hash_kind: "canonical_patch",
+      has_content_changes: false,
       blocked_files: [],
+      write_path_observed: false,
     }).result, "UNKNOWN");
+
     assert.equal(verifyCursorHostOutcome({
       session_id: "s1",
       diff_hash: "abc",
+      diff_hash_kind: "no_task_changes",
+      has_content_changes: false,
       blocked_files: [],
       error: null,
       cancelled: false,
       test_command: null,
+      write_path_observed: false,
     }).result, "PASS");
+
+    const withWriteUnknown = verifyCursorHostOutcome({
+      session_id: "s1",
+      diff_hash: "deadbeef".repeat(8),
+      diff_hash_kind: "canonical_patch",
+      has_content_changes: true,
+      blocked_files: [],
+      error: null,
+      cancelled: false,
+      test_command: null,
+      write_path_observed: false,
+    });
+    assert.equal(withWriteUnknown.result, "UNKNOWN");
+    assert.match(withWriteUnknown.reason, /security_expectation_unknown/);
+    assert.notEqual(withWriteUnknown.reason, "all_expectations_verified");
   });
 
-  test("host collector captures git status/diff hash", async () => {
+  test("verifier strictness: required UNKNOWN/PARTIAL cannot all_expectations_verified", () => {
+    const partial = verifyTaskOutcome({
+      task: {
+        task_id: "t-strict",
+        evidence: [
+          createEvidenceRecord({
+            epistemic: "VERIFIED",
+            claim: "cursor.session.status=completed",
+            source: "host",
+          }),
+        ],
+      },
+      checks: [
+        { id: "session", status: "verified", required: true, security: true },
+        { id: "write_path", status: "unknown", required: true, security: true },
+        { id: "git_diff", status: "partial", required: true, security: false },
+      ],
+    });
+    assert.equal(partial.result, "UNKNOWN");
+    assert.notEqual(partial.reason, "all_expectations_verified");
+
+    const securityOnly = verifyTaskOutcome({
+      task: {
+        task_id: "t-sec",
+        evidence: [
+          createEvidenceRecord({ epistemic: "VERIFIED", claim: "ok", source: "host" }),
+        ],
+      },
+      checks: [
+        { id: "session", status: "verified", required: true, security: true },
+        { id: "write_path", status: "unknown", required: true, security: true },
+      ],
+    });
+    assert.equal(securityOnly.result, "UNKNOWN");
+    assert.match(securityOnly.reason, /security_expectation_unknown/);
+  });
+
+  test("untracked files enter canonical change set and content hash", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cursor-untracked-"));
+    try {
+      await initGitRepo(dir);
+      await mkdir(join(dir, "test", "fixtures"), { recursive: true });
+      const marker = "LIVE_E2E_OK phase5-hardening\n";
+      await writeFile(join(dir, "test", "fixtures", "live-e2e-marker.txt"), marker);
+
+      const snap = await collectHostGitSnapshot({
+        cwd: dir,
+        taskId: "task-untracked",
+        sessionId: "sess",
+      });
+      assert.ok(snap.git_diff.includes("live-e2e-marker.txt") || snap.git_diff.includes("LIVE_E2E_OK"));
+      assert.match(snap.diff_hash, /^[a-f0-9]{64}$/u);
+      assert.equal(snap.diff_hash_kind, "canonical_patch");
+      assert.equal(snap.has_content_changes, true);
+      assert.ok(snap.changed_files.some((f) => f.includes("live-e2e-marker.txt")));
+      assert.ok(snap.git_diff.length > 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("baseline delta excludes pre-existing untracked from task changes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cursor-baseline-"));
+    try {
+      await initGitRepo(dir);
+      await writeFile(join(dir, "pre-existing.txt"), "already here\n");
+      await mkdir(join(dir, "scripts"), { recursive: true });
+      await writeFile(join(dir, "scripts", "noise.sh"), "echo noise\n");
+
+      const baseline = await captureGitBaseline({ cwd: dir });
+      assert.ok(baseline.paths.includes("pre-existing.txt"));
+
+      await writeFile(join(dir, "task-created.txt"), "from this task\n");
+
+      const changeSet = await buildCanonicalChangeSet({ cwd: dir, baseline });
+      assert.ok(changeSet.changed_files.includes("task-created.txt"));
+      assert.ok(changeSet.pre_existing_files.includes("pre-existing.txt"));
+      assert.ok(changeSet.pre_existing_files.some((f) => f.includes("noise.sh")));
+      assert.ok(!changeSet.changed_files.includes("pre-existing.txt"));
+      assert.ok(changeSet.git_diff.includes("task-created") || changeSet.git_diff.includes("from this task"));
+      assert.ok(!changeSet.git_diff.includes("already here"));
+      assert.equal(changeSet.diff_hash_kind, "canonical_patch");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("content change without WRITE path observation yields UNKNOWN host outcome", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cursor-write-unknown-"));
+    try {
+      await initGitRepo(dir);
+      const baseline = await captureGitBaseline({ cwd: dir });
+      await writeFile(join(dir, "new-from-shell.txt"), "via execute redirect\n");
+      const host = await collectCursorHostResult({
+        taskId: "task-write-unk",
+        sessionId: "sess-1",
+        startedAt: new Date().toISOString(),
+        stopReason: "end_turn",
+        exitCode: 0,
+        cwd: dir,
+        baseline,
+        permissionEvents: [
+          { risk: "EXECUTE", optionId: "allow-once", reason: "misclassified" },
+        ],
+      });
+      assert.equal(host.has_content_changes, true);
+      assert.equal(host.write_path_observed, false);
+      const outcome = verifyCursorHostOutcome(host);
+      assert.equal(outcome.result, "UNKNOWN");
+      assert.match(outcome.reason, /write_path|security_expectation_unknown/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("host collector captures git status/diff hash for tracked edits", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cursor-git-"));
     try {
       await initGitRepo(dir);

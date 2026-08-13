@@ -45,6 +45,9 @@ import { DiscussionContextStore } from "./memory/discussion-context-store.mjs";
 import { createMemoryContextFacade } from "./memory/context-facade.mjs";
 import { createBuiltinToolRegistry } from "./tools/tool-registry.mjs";
 import { evaluateApprovalPolicy } from "./approval/approval-policy.mjs";
+import { DevelopmentRunStore } from "./supervisor/development-run-store.mjs";
+import { createDevelopmentSupervisor } from "./supervisor/development-supervisor.mjs";
+import { assertMergeExecutionForbidden } from "./supervisor/merge-to-main-schema.mjs";
 import { streamTtsEvents } from "./tts/http-stream.mjs";
 import { createRuntimeTtsRegistry } from "./tts/pinned-runtime.mjs";
 import { SpeechSession } from "./tts/speech-session.mjs";
@@ -81,6 +84,7 @@ const TASK_MANAGER_PATH = `${ROOT}/data/task-manager/tasks.json`;
 const DECISION_MEMORY_PATH = `${ROOT}/data/decision-memory/decisions.json`;
 const DISCUSSION_CONTEXT_PATH = `${ROOT}/data/discussion-context/active.json`;
 const DEVELOPMENT_LEDGER_PATH = `${ROOT}/data/development-ledger/changes.json`;
+const DEVELOPMENT_RUN_PATH = `${ROOT}/data/development-runs/runs.json`;
 const CODEX_SOURCE_ROOT = `${ROOT}/app/secure-chat`;
 const TELEGRAM_CONFIG_SCRIPT = `${ROOT}/app/secure-chat/scripts/configure-telegram-general.mjs`;
 const CONFIRMED_MEMORY_PATH =
@@ -524,6 +528,15 @@ async function main() {
     cursorAdapter: cursorDevelopmentAdapter,
     structuredLog,
   });
+  const developmentRunStore = await new DevelopmentRunStore(DEVELOPMENT_RUN_PATH).initialize();
+  const developmentSupervisor = createDevelopmentSupervisor({
+    runStore: developmentRunStore,
+    taskStore: taskManager,
+    approvalStore,
+    discussionStore: discussionContext,
+    taskOrchestrator,
+    runSystemStatus: ownerSystemStatus,
+  });
   const ownerActionExecutor = new OwnerActionExecutor({
     approvalStore,
     proactiveStore,
@@ -739,6 +752,94 @@ async function main() {
           return json(response, 403, { error: "owner_device_required" });
         }
         return json(response, 200, { entries: await developmentLedger.list() });
+      }
+      if (request.method === "GET" && url.pathname === "/api/development/runs") {
+        if (!hasScope(device, "status") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        return json(response, 200, {
+          runs: await developmentRunStore.list({
+            status: url.searchParams.get("status") || null,
+            limit: Number(url.searchParams.get("limit") ?? "50"),
+          }),
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/api/development/runs") {
+        if (!hasScope(device, "chat") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        try {
+          const body = await readBody(request);
+          const run = await developmentSupervisor.start({
+            goal: body?.goal,
+            channel: body?.channel ?? "local_owner_app",
+            budget: body?.budget ?? {},
+          });
+          return json(response, 201, run);
+        } catch (error) {
+          return json(response, error?.statusCode ?? 400, { error: error?.message ?? "development_run_create_failed" });
+        }
+      }
+      {
+        const devRunMatch = url.pathname.match(/^\/api\/development\/runs\/([^/]+)$/);
+        if (request.method === "GET" && devRunMatch) {
+          if (!hasScope(device, "status") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          const run = await developmentRunStore.get(devRunMatch[1]);
+          if (!run) return json(response, 404, { error: "development_run_not_found" });
+          return json(response, 200, run);
+        }
+        const inspectMatch = url.pathname.match(/^\/api\/development\/runs\/([^/]+)\/inspect$/);
+        if (request.method === "POST" && inspectMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            const body = await readBody(request);
+            return json(response, 200, await developmentSupervisor.inspectAndPropose(inspectMatch[1], {
+              proposalOverrides: body?.proposal_overrides ?? {},
+            }));
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "development_inspect_failed" });
+          }
+        }
+        const prepareMatch = url.pathname.match(/^\/api\/development\/runs\/([^/]+)\/prepare$/);
+        if (request.method === "POST" && prepareMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            return json(response, 200, await developmentSupervisor.prepareExecution(prepareMatch[1]));
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "development_prepare_failed" });
+          }
+        }
+        const continueMatch = url.pathname.match(/^\/api\/development\/runs\/([^/]+)\/continue$/);
+        if (request.method === "POST" && continueMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            return json(response, 200, await developmentSupervisor.runLeafTasks(continueMatch[1]));
+          } catch (error) {
+            return json(response, error?.statusCode ?? 400, { error: error?.message ?? "development_continue_failed" });
+          }
+        }
+        const mergeMatch = url.pathname.match(/^\/api\/development\/runs\/([^/]+)\/merge-to-main$/);
+        if (request.method === "POST" && mergeMatch) {
+          if (!hasScope(device, "chat") || device.role !== "owner") {
+            return json(response, 403, { error: "owner_device_required" });
+          }
+          try {
+            assertMergeExecutionForbidden();
+          } catch (error) {
+            return json(response, error?.statusCode ?? 403, {
+              error: error?.message ?? "dev_merge_to_main_execution_forbidden",
+              note: "스키마만 준비됨. 자동 merge/commit/push/deploy 미구현.",
+            });
+          }
+        }
       }
       if (request.method === "POST" && url.pathname === "/api/ledger/development") {
         if (!hasScope(device, "chat") || device.role !== "owner") {

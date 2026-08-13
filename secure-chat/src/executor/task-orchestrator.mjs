@@ -47,6 +47,12 @@ export function createTaskOrchestrator({
     channel = "local_owner_app",
     prompt,
     testCommand = null,
+    projectRoot = null,
+    writeRoots = null,
+    mainRepo = null,
+    mainReadOnly = false,
+    envelope = null,
+    successCriteria = null,
   }) {
     if (!cursorAdapter) fail("cursor_adapter_unavailable", 503);
     if (channel === "telegram") {
@@ -105,7 +111,18 @@ export function createTaskOrchestrator({
         nextStep: "plan",
         error: null,
       });
-      return runCursorDevelop({ taskId, channel, prompt, testCommand });
+      return runCursorDevelop({
+        taskId,
+        channel,
+        prompt,
+        testCommand,
+        projectRoot,
+        writeRoots,
+        mainRepo,
+        mainReadOnly,
+        envelope,
+        successCriteria,
+      });
     }
     if (current.status === "PLANNED") {
       current = await taskStore.transition(taskId, {
@@ -120,6 +137,10 @@ export function createTaskOrchestrator({
       prompt,
       testCommand,
       channel,
+      projectRoot,
+      writeRoots,
+      mainRepo,
+      mainReadOnly,
     });
 
     if (result.binding) {
@@ -180,22 +201,54 @@ export function createTaskOrchestrator({
     }
 
     const outcome = verifyCursorHostOutcome(result.host);
-    const verification = outcome.result === "PASS"
+    let checks = Array.isArray(outcome.checks) ? [...outcome.checks] : [];
+    const frozenCriteria = successCriteria
+      ?? envelope?.success_criteria
+      ?? current.bindings?.supervisor?.success_criteria
+      ?? null;
+    if (Array.isArray(frozenCriteria) && frozenCriteria.length > 0) {
+      const { buildSuccessCriteriaChecks, successCriteriaDigest } = await import("../supervisor/success-criteria.mjs");
+      const expectedDigest = current.bindings?.supervisor?.success_criteria_digest
+        ?? successCriteriaDigest(frozenCriteria);
+      checks = [
+        ...checks,
+        ...buildSuccessCriteriaChecks({
+          successCriteria: frozenCriteria,
+          envelope: envelope ?? {
+            success_criteria: frozenCriteria,
+            allowed_paths: current.bindings?.supervisor?.allowed_paths,
+            out_of_scope: current.bindings?.supervisor?.out_of_scope,
+          },
+          host: result.host,
+          task: current,
+          expectedDigest,
+        }),
+      ];
+    }
+    const verification = checks.length > 0
       ? verifyTaskOutcome({
         task: current,
-        expectations: outcome.expectations,
+        checks,
         requireVerified: true,
       })
-      : Object.freeze({
-        result: outcome.result === "FAIL" ? "FAIL" : "UNKNOWN",
-        reason: outcome.reason,
-        checked_at: new Date().toISOString(),
-        matched: Object.freeze([]),
-        missing: Object.freeze([]),
-      });
+      : outcome.result === "PASS" || outcome.result === "PASS_WITH_WARNINGS"
+        ? verifyTaskOutcome({
+          task: current,
+          expectations: outcome.expectations ?? [],
+          requireVerified: true,
+        })
+        : Object.freeze({
+          result: outcome.result === "FAIL" ? "FAIL" : "UNKNOWN",
+          reason: outcome.reason,
+          checked_at: new Date().toISOString(),
+          matched: Object.freeze([]),
+          missing: Object.freeze([]),
+          warnings: Object.freeze([]),
+        });
 
     const evidence = [verificationEvidence(verification, { taskId })];
-    if (verification.result === "PASS") {
+    // PASS / PASS_WITH_WARNINGS만 SUCCESS. 보안 UNKNOWN은 SUCCESS 금지.
+    if (verification.result === "PASS" || verification.result === "PASS_WITH_WARNINGS") {
       current = await taskStore.transition(taskId, {
         toStatus: "SUCCESS",
         currentStep: "done",
@@ -244,6 +297,12 @@ export function createTaskOrchestrator({
     prompt = null,
     testCommand = null,
     expectations = [],
+    projectRoot = null,
+    writeRoots = null,
+    mainRepo = null,
+    mainReadOnly = false,
+    envelope = null,
+    successCriteria = null,
   } = {}) {
     if (toolName === "cursor.develop") {
       return runCursorDevelop({
@@ -251,6 +310,12 @@ export function createTaskOrchestrator({
         channel,
         prompt: prompt ?? (await taskStore.get(taskId))?.goal,
         testCommand,
+        projectRoot,
+        writeRoots,
+        mainRepo,
+        mainReadOnly,
+        envelope,
+        successCriteria,
       });
     }
 
