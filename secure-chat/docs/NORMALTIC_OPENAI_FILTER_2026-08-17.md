@@ -43,7 +43,7 @@
 ## 이 저장소에 적용한 것
 
 - 기본 답은 맥 Ollama.
-- `오픈에게 물어봐 …` 이거나 `ask: "openai"`일 때만 맥이 `https://api.openai.com/v1/chat/completions`로 질문 한 줄을 보낸다.
-- 키는 `.env`의 `OPENAI_API_KEY`. 커밋하지 않는다. 없으면 안내만 한다.
+- `오픈에게 물어봐 …` 이거나 `ask: "openai"`일 때만 맥이 이미 띄운 `http://127.0.0.1:18790/v1/chat/completions`로 질문 한 줄을 보낸다.
+- OpenAI API 키와 `api.openai.com` 직접 호출은 쓰지 않는다. 집 프록시 토큰은 키체인에 이미 있다.
 - 텔레그램으로는 오픈에게 보내지 않는다.
 - 유튜브를 보고 코드를 자동으로 고치거나 배포하지 않는다.

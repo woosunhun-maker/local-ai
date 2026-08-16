@@ -204,6 +204,7 @@ async function streamRoomSay(response, roomStore, started, body = {}) {
       ask: body?.ask,
       text: body?.text,
       signal: abort.signal,
+      readToken: proxyToken,
     })) {
       if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
       answer += fragment;
@@ -833,7 +834,11 @@ async function main() {
             if (plan.target === "openai") {
               await audit({ event: "openai_ask", questionChars: plan.question.length });
             }
-            const answer = await roomTurnAnswer(started.room.messages, { ask: body?.ask, text: body?.text });
+            const answer = await roomTurnAnswer(started.room.messages, {
+              ask: body?.ask,
+              text: body?.text,
+              readToken: proxyToken,
+            });
             return json(response, 200, await roomStore.finishJob(started.job.id, { ok: true, answer }));
           } catch (error) {
             await audit({ event: "room_say_failed", errorClass: error?.name ?? "Error" });

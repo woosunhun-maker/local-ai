@@ -19,8 +19,8 @@ export async function* roomTurnTokens(messages, {
   text,
   signal,
   fetchImpl,
-  apiKey,
-  model,
+  token,
+  readToken,
 } = {}) {
   const plan = planRoomTurn(messages, { ask, text });
   if (plan.target === "openai") {
@@ -28,7 +28,7 @@ export async function* roomTurnTokens(messages, {
       yield OPENAI_EMPTY_QUESTION;
       return;
     }
-    yield* askOpenAITokens(plan.question, { signal, fetchImpl, apiKey, model });
+    yield* askOpenAITokens(plan.question, { signal, fetchImpl, token, readToken });
     return;
   }
   yield* askRoomModelTokens(messages, { signal, fetchImpl });
