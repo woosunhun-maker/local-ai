@@ -29,7 +29,7 @@ test("점검 보고에는 sudo 가이드와 텔레그램이 없다", () => {
   assert.doesNotMatch(text, /sudo |따라 하|telegram/i);
 });
 
-test("방 턴은 방화벽 부탁에 모델을 부르지 않고 실행 보고만 한다", async () => {
+test("방 턴은 방화벽 부탁에 모델을 부르지 않고 Face ID 승인을 기다린다", async () => {
   const answer = await roomTurnAnswer(
     [{ role: "user", content: "방화벽 활성화 하고 포트점검하고 백업하라고" }],
     {
@@ -37,20 +37,11 @@ test("방 턴은 방화벽 부탁에 모델을 부르지 않고 실행 보고만
         if (String(url).includes("11434")) throw new Error("should_not_call_ollama");
         return { ok: true, status: 200 };
       },
-      execFileImpl: async (file, args) => {
-        if (String(file).includes("socketfilterfw") && args.includes("--getglobalstate")) {
-          return { stdout: "Firewall is enabled. (State = 1)\n" };
-        }
-        if (String(file).includes("lsof")) return { stdout: "COMMAND 1 hun TCP 127.0.0.1:18791 (LISTEN)\n" };
-        if (String(file).includes("dscl")) return { stdout: "hun\nroot\n_www\n" };
-        if (String(args).includes("GuestEnabled")) return { stdout: "0\n" };
-        if (String(file).includes("tmutil")) return { stdout: "Running = 0\n" };
-        if (String(file).includes("launchctl")) return { stdout: "state = running\npid = 1\n" };
-        return { stdout: "" };
+      execFileImpl: async () => {
+        throw new Error("should_not_run_until_faceid");
       },
     },
   );
-  assert.match(answer, /맥이 직접 했습니다/);
-  assert.match(answer, /방화벽: 켜짐/);
-  assert.doesNotMatch(answer, /텍스트 기반|sudo \/usr\/libexec/);
+  assert.match(answer, /Face ID 또는 암호/);
+  assert.doesNotMatch(answer, /텍스트 기반|sudo \/usr\/libexec|불가능/);
 });

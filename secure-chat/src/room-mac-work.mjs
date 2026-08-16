@@ -5,7 +5,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { doHouseSecurity, isMacDoCommand } from "./room-mac-do.mjs";
+import { isMacDoCommand } from "./room-mac-do.mjs";
+import { findPendingHouseDo, formatFaceIdWait, isFaceIdGateCommand, requestHouseDoApproval } from "./room-faceid-gate.mjs";
 
 const execFileAsync = promisify(execFile);
 const HOUSE_REPO = "/Users/hun/Documents/로컬ai";
@@ -18,7 +19,7 @@ export function isContinueCommand(text) {
 
 export function isMacWorkCommand(text) {
   const value = String(text ?? "");
-  if (isContinueCommand(value) || isMacDoCommand(value)) return true;
+  if (isContinueCommand(value) || isMacDoCommand(value) || isFaceIdGateCommand(value)) return true;
   return /커서|cursor\s*ide|화면\s*보|그거\s*보|보면서\s*지시|지시해서\s*진행|나한테\s*보고|보고\s*좀|창을\s*보|맥\s*화면|모니터를\s*보/iu
     .test(value);
 }
@@ -33,8 +34,13 @@ export function previousUserText(messages, current) {
 
 export async function runMacOwnerWork(text, options = {}) {
   const prior = previousUserText(options.messages, text);
-  if (isMacDoCommand(text) || (isContinueCommand(text) && isMacDoCommand(prior))) {
-    return doHouseSecurity(options);
+  if (isMacDoCommand(text)) {
+    return requestHouseDoApproval(text, options);
+  }
+  if (isContinueCommand(text) && isMacDoCommand(prior)) {
+    const pending = await findPendingHouseDo(options.approvalStore);
+    if (pending) return formatFaceIdWait(pending);
+    return reportMacWork(options);
   }
   return reportMacWork(options);
 }

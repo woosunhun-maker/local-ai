@@ -59,6 +59,33 @@ test("진행하라는 오타는 모델 거절 없이 집 보고만 한다", asyn
   assert.doesNotMatch(answer, /통제할 수 없|127\.0\.0\.1:18790/);
 });
 
+test("진행해는 대기 중인 Face ID가 있으면 다시 실행하지 않는다", async () => {
+  const answer = await roomTurnAnswer(
+    [
+      { role: "user", content: "방화벽 활성화 하고 백업하라" },
+      { role: "assistant", content: "아이폰에서 Face ID 또는 암호로 한 번 승인해 주세요." },
+      { role: "user", content: "진행해" },
+    ],
+    {
+      approvalStore: {
+        listPending: async () => [{
+          kind: "room.house-do.v1",
+          summary: "방화벽·포트·계정·백업·감시만 맥이 확인하고, 결제·문자·전화는 하지 않습니다.",
+        }],
+      },
+      fetchImpl: async (url) => {
+        if (String(url).includes("11434")) throw new Error("should_not_call_ollama");
+        return { ok: true, status: 200 };
+      },
+      execFileImpl: async () => {
+        throw new Error("should_not_run_until_faceid");
+      },
+    },
+  );
+  assert.match(answer, /Face ID 또는 암호/);
+  assert.doesNotMatch(answer, /맥이 직접 했습니다|시킨 대로 이어서/);
+});
+
 test("보고는 exec와 probe 결과를 그대로 쓴다", async () => {
   const text = await reportMacWork({
     execFileImpl: async (_file, args) => {

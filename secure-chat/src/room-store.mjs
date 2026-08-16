@@ -76,6 +76,22 @@ export class RoomStore {
     return { room, message, job };
   }
 
+  async addAssistant(text) {
+    const content = String(text ?? "").trim().slice(0, 16_000);
+    if (!content) fail("empty_room_message");
+    const room = await this.#read();
+    room.messages.push({
+      id: randomUUID(),
+      role: "assistant",
+      content,
+      at: nowIso(),
+    });
+    this.#trim(room);
+    room.updatedAt = nowIso();
+    await this.#write(room);
+    return room;
+  }
+
   async finishJob(jobId, { ok, answer }) {
     const room = await this.#read();
     const job = room.jobs.find((item) => item.id === jobId);

@@ -18,6 +18,15 @@ test("한 방에 말과 일이 같이 남고 끝나면 상태가 바뀐다", asy
   await rm(dir, { recursive: true, force: true });
 });
 
+test("승인 뒤 결과는 일 없이 방에 붙는다", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "room-assistant-"));
+  const store = await new RoomStore(join(dir, "room.json")).initialize();
+  const room = await store.addAssistant("Face ID 승인 뒤 점검했습니다.");
+  assert.equal(room.messages.at(-1).role, "assistant");
+  assert.match(room.messages.at(-1).content, /Face ID/);
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("방을 비우면 말과 일이 모두 사라진다", async () => {
   const dir = await mkdtemp(join(tmpdir(), "room-clear-"));
   const store = await new RoomStore(join(dir, "room.json")).initialize();

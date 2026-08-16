@@ -1,6 +1,8 @@
 import { containsCredential } from "./security/credential-patterns.mjs";
 import { parseOpenAIAsk, sanitizeOpenAIQuestion } from "./openai-ask.mjs";
 import { isRoomNoise } from "./room-ask.mjs";
+import { isMacDoCommand } from "./room-mac-do.mjs";
+import { isFaceIdGateCommand } from "./room-faceid-gate.mjs";
 import { isMacWorkCommand } from "./room-mac-work.mjs";
 import { inspectRoomOwnerCommand } from "./room-owner-policy.mjs";
 
@@ -67,6 +69,16 @@ export function planSelfConsult(text, {
   }
   if (isPrivateForConsult(text)) {
     return Object.freeze({ mode: "local", target: "local", consult: false, question: "", reason: "private" });
+  }
+  if (isFaceIdGateCommand(text) && !isMacDoCommand(text)) {
+    return Object.freeze({
+      mode: "faceid_gate",
+      target: "iphone",
+      consult: false,
+      question: "",
+      reason: "faceid_gate",
+      reply: "",
+    });
   }
   if (isMacWorkCommand(text)) {
     return Object.freeze({ mode: "mac_work", target: "mac", consult: false, question: "", reason: "mac_work" });

@@ -1,5 +1,6 @@
 import { askOpenAITokens, isOpenGatewayUp, OPENAI_EMPTY_QUESTION, OPENAI_LOCAL_UNAVAILABLE } from "./openai-ask.mjs";
 import { askRoomModelTokens } from "./room-ask.mjs";
+import { FACEID_GATE_REPLY } from "./room-faceid-gate.mjs";
 import { runMacOwnerWork } from "./room-mac-work.mjs";
 import { planSelfConsult } from "./self-consult.mjs";
 
@@ -41,14 +42,24 @@ export async function* roomTurnTokens(messages, {
   readToken,
   lessonStore,
   execFileImpl,
+  approvalStore,
 } = {}) {
   const plan = await planRoomTurn(messages, { ask, text, lessonStore });
   if (plan.mode === "deny") {
     yield plan.reply;
     return;
   }
+  if (plan.mode === "faceid_gate") {
+    yield FACEID_GATE_REPLY;
+    return;
+  }
   if (plan.mode === "mac_work") {
-    yield await runMacOwnerWork(lastUserText(messages, text), { fetchImpl, execFileImpl, messages });
+    yield await runMacOwnerWork(lastUserText(messages, text), {
+      fetchImpl,
+      execFileImpl,
+      messages,
+      approvalStore,
+    });
     return;
   }
   if (plan.mode === "openai_only") {

@@ -9,12 +9,23 @@ final class TalkModel: ObservableObject {
     @Published var errorText: String?
     @Published var sending = false
     @Published var confirmClear = false
+    @Published var pendingApproval: HouseApproval?
+    @Published var deciding = false
 
     private var streamTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
     private var liveReplyID: UUID?
+    private var approvalKeyReady = false
 
     func start() async {
         await refresh(keepMessages: false)
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshApprovals()
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
     }
 
     func refresh(keepMessages: Bool) async {
@@ -30,6 +41,7 @@ final class TalkModel: ObservableObject {
             }
             link = .linked
             errorText = nil
+            await refreshApprovals()
         } catch HouseError.notPaired {
             link = .broken
             errorText = HouseError.notPaired.errorDescription
@@ -136,6 +148,40 @@ final class TalkModel: ObservableObject {
         statusLine = nil
         streamTask = nil
         liveReplyID = nil
+        await refreshApprovals()
+    }
+
+    func decidePending(approved: Bool) async {
+        guard let approval = pendingApproval, !deciding else { return }
+        deciding = true
+        errorText = nil
+        do {
+            try await HouseClient.shared.registerApprovalKey()
+            try await HouseClient.shared.decide(approval: approval, approved: approved)
+            pendingApproval = nil
+            statusLine = approved ? "맥이 한 번 실행하는 중" : nil
+            if approved {
+                try? await Task.sleep(for: .seconds(1))
+                await refresh(keepMessages: true)
+            }
+        } catch {
+            errorText = error.localizedDescription
+        }
+        deciding = false
+        await refreshApprovals()
+    }
+
+    private func refreshApprovals() async {
+        guard HouseClient.shared.isPaired, !deciding else { return }
+        do {
+            if !approvalKeyReady {
+                try await HouseClient.shared.registerApprovalKey()
+                approvalKeyReady = true
+            }
+            pendingApproval = try await HouseClient.shared.pendingApprovals().first
+        } catch {
+            approvalKeyReady = false
+        }
     }
 
     func clearRoom() async {
@@ -195,6 +241,9 @@ struct TalkView: View {
                     .fill(HouseColor.rule)
                     .frame(height: 1)
                 messages
+                if let approval = model.pendingApproval {
+                    approvalCard(approval)
+                }
                 if let error = model.errorText {
                     Text(error)
                         .font(.footnote)
@@ -308,6 +357,43 @@ struct TalkView: View {
             .scrollDismissesKeyboard(.never)
             .onTapGesture { keepKeyboard() }
         }
+    }
+
+    private func approvalCard(_ approval: HouseApproval) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("한 번만 승인")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(HouseColor.mute)
+            Text(approval.title)
+                .font(.headline)
+                .foregroundStyle(HouseColor.ink)
+            Text(approval.summary)
+                .font(.subheadline)
+                .foregroundStyle(HouseColor.mute)
+            HStack(spacing: 10) {
+                Button("거절") {
+                    Task { await model.decidePending(approved: false) }
+                }
+                .disabled(model.deciding)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(HouseColor.sheet, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(HouseColor.ink)
+                Button(model.deciding ? "확인 중" : "Face ID로 승인") {
+                    Task { await model.decidePending(approved: true) }
+                }
+                .disabled(model.deciding)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(HouseColor.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(HouseColor.paper)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HouseColor.sheet, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
     }
 
     private var emptyState: some View {

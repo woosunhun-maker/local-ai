@@ -122,6 +122,30 @@ enum HouseSSE {
     }
 }
 
+struct HouseApproval: Identifiable, Equatable, Sendable {
+    let id: String
+    let kind: String
+    let title: String
+    let summary: String
+    let payloadSha256: String
+    let nonce: String
+    let expiresAt: String
+}
+
+enum ApprovalSigning {
+    static let prefix = "localai-approval-v1"
+
+    static func message(
+        requestId: String,
+        payloadSha256: String,
+        nonce: String,
+        expiresAt: String,
+        decision: String
+    ) -> String {
+        [prefix, requestId, payloadSha256, nonce, expiresAt, decision].joined(separator: "\n")
+    }
+}
+
 enum HouseDate {
     static func parse(_ value: String) -> Date {
         let fractional = ISO8601DateFormatter()

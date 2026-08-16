@@ -35,6 +35,8 @@
       </dict>
     </dict>
   </dict>
+  <key>NSFaceIDUsageDescription</key>
+  <string>시킨 일을 맥이 한 번만 하게, 이 아이폰에서 Face ID 또는 암호로 승인합니다.</string>
   <key>NSLocalNetworkUsageDescription</key>
   <string>같은 집 네트워크에서 맥의 로컬 AI와만 대화합니다.</string>
   <key>LSRequiresIPhoneOS</key>

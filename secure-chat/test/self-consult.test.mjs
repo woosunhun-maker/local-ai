@@ -28,6 +28,12 @@ test("인사와 비밀은 스스로 오픈에게 보내지 않는다", () => {
   assert.match(buildSelfQuestion("파이썬 리스트 정렬은 어떻게 해"), /일반 지식만/);
 });
 
+test("Face ID 한 번 승인 구조는 오픈에게 보내지 않는다", () => {
+  const text = "지시하면 1회 실행하고 faceid로 승인 받아야 해";
+  assert.equal(isOutsideRoomTask(text), true);
+  assert.equal(planSelfConsult(text).mode, "faceid_gate");
+});
+
 test("Cursor 화면을 보고 진행하라는 부탁은 오픈에게 보내지 않는다", () => {
   const text = "지금 내맥으로 커서 ide로 앱 띄어놨거든? 그거보면서 지시해서 진행하고 나한테 보고좀";
   assert.equal(isOutsideRoomTask(text), true);
