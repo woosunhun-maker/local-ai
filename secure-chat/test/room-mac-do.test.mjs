@@ -12,7 +12,10 @@ test("아이폰에서 시킨 실행은 질문과 다르게 맥이 할 일이다"
   assert.equal(isOwnerDoCommand("너가 하라고"), true);
   assert.equal(isOwnerDoCommand("파이썬 리스트 정렬은 어떻게 해"), false);
   assert.equal(isOwnerDoCommand("Swift에서 async let이 뭐가 다른지 설명해줘"), false);
+  assert.equal(isOwnerDoCommand("절대 금지사항은 뭔지 얘기해봐"), false);
+  assert.equal(isOwnerDoCommand("이제내가시키는거 다할수있나"), false);
   assert.equal(planSelfConsult("너가 하라고").mode, "mac_work");
+  assert.equal(planSelfConsult("절대 금지사항은 뭔지 얘기해봐").mode, "policy");
 });
 
 test("방화벽·포트 부탁은 맥이 할 일이다", () => {

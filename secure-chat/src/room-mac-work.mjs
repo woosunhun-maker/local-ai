@@ -5,7 +5,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
+import { isMacDoCommand, isOwnerAskCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
 import { findPendingHouseDo, formatFaceIdWait, isFaceIdGateCommand, requestHouseDoApproval } from "./room-faceid-gate.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -19,9 +19,8 @@ export function isContinueCommand(text) {
 
 export function isMacWorkCommand(text) {
   const value = String(text ?? "");
-  if (isContinueCommand(value) || isOwnerDoCommand(value) || isMacDoCommand(value) || isFaceIdGateCommand(value)) {
-    return true;
-  }
+  if (isContinueCommand(value) || isOwnerDoCommand(value) || isFaceIdGateCommand(value)) return true;
+  if (isMacDoCommand(value) && !isOwnerAskCommand(value)) return true;
   return /커서|cursor\s*ide|화면\s*보|그거\s*보|보면서\s*지시|지시해서\s*진행|나한테\s*보고|보고\s*좀|창을\s*보|맥\s*화면|모니터를\s*보/iu
     .test(value);
 }

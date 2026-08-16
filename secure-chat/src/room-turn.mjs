@@ -45,7 +45,7 @@ export async function* roomTurnTokens(messages, {
   approvalStore,
 } = {}) {
   const plan = await planRoomTurn(messages, { ask, text, lessonStore });
-  if (plan.mode === "deny") {
+  if (plan.mode === "deny" || plan.mode === "policy") {
     yield plan.reply;
     return;
   }

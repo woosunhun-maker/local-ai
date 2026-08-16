@@ -8,8 +8,8 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const FIREWALL = "/usr/libexec/ApplicationFirewall/socketfilterfw";
 
-const ASK = /[?？]|어떻게|왜\s|왜요|무엇|뭐가|뜻|차이|설명|원리|추천|비교/u;
-const IMPERATIVE = /(?:해라|하라고|시켜라|시켜(?:요|라)?|만들어라|만들으라고|만들라고|점검해|실행해|켜라|켜줘|꺼라|고쳐라|보완해|해바라|해봐)/u;
+const ASK = /[?？]|어떻게|왜\s|왜요|무엇|뭔지|뭐야|뭐가|뜻|차이|설명|원리|추천|비교|얘기해|말해|알려줘|할수있|할\s*수\s*있|금지사항/u;
+const IMPERATIVE = /(?:해라|하라고|시켜라|만들어라|만들으라고|만들라고|점검해|실행해|켜라|켜줘|꺼라|고쳐라|보완해)/u;
 const TASK = /방화벽|포트\s*점|계정\s*분리|소프트웨어\s*확인|네트워크\s*보안|백업|모니터링|활성화\s*하고|점검|설정해|의심스런/;
 
 export function isMacDoCommand(text) {
@@ -17,12 +17,15 @@ export function isMacDoCommand(text) {
     .test(String(text ?? ""));
 }
 
+export function isOwnerAskCommand(text) {
+  return ASK.test(String(text ?? ""));
+}
+
 export function isOwnerDoCommand(text) {
   const value = String(text ?? "").trim();
-  if (!value) return false;
+  if (!value || isOwnerAskCommand(value)) return false;
   if (isMacDoCommand(value)) return true;
-  if (IMPERATIVE.test(value) && !ASK.test(value)) return true;
-  if (TASK.test(value) && !ASK.test(value)) return true;
+  if (IMPERATIVE.test(value) || TASK.test(value)) return true;
   return false;
 }
 

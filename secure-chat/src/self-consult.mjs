@@ -4,7 +4,7 @@ import { isRoomNoise } from "./room-ask.mjs";
 import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
 import { isFaceIdGateCommand } from "./room-faceid-gate.mjs";
 import { isMacWorkCommand } from "./room-mac-work.mjs";
-import { inspectRoomOwnerCommand } from "./room-owner-policy.mjs";
+import { inspectRoomOwnerCommand, isPolicyQuestion, ROOM_POLICY_REPLY } from "./room-owner-policy.mjs";
 
 export const SELF_CONSULT_COOLDOWN_MS = 8_000;
 export const SELF_CONSULT_DAILY_CAP = 40;
@@ -60,6 +60,16 @@ export function planSelfConsult(text, {
     });
   }
   const parsed = parseOpenAIAsk(text, { ask });
+  if (isPolicyQuestion(text)) {
+    return Object.freeze({
+      mode: "policy",
+      target: "policy",
+      consult: false,
+      question: "",
+      reason: "policy",
+      reply: ROOM_POLICY_REPLY,
+    });
+  }
   if (parsed.target === "openai") {
     return Object.freeze({
       mode: "openai_only",
