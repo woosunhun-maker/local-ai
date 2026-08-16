@@ -50,6 +50,21 @@ test("상태에는 API 키가 없고 맥 루프백만 있다", () => {
   assert.throws(() => assertLocalOpenAIUrl("https://api.openai.com/v1/chat/completions"), /loopback/);
 });
 
+test("키체인 읽기가 실패해도 바깥으로 나가지 않는다", async () => {
+  const parts = [];
+  for await (const part of askOpenAITokens("날씨", {
+    readToken: async () => {
+      throw new Error("keychain_locked");
+    },
+    fetchImpl: async () => {
+      throw new Error("should_not_fetch");
+    },
+  })) {
+    parts.push(part);
+  }
+  assert.deepEqual(parts, [OPENAI_LOCAL_UNAVAILABLE]);
+});
+
 test("프록시 토큰이 없으면 바깥 네트워크를 열지 않는다", async () => {
   let called = 0;
   await assert.rejects(

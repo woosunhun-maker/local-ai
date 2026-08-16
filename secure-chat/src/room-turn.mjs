@@ -46,12 +46,7 @@ export async function* roomTurnTokens(messages, {
       yield OPENAI_EMPTY_QUESTION;
       return;
     }
-    let consult = "";
-    for await (const fragment of askOpenAITokens(plan.question, { signal, fetchImpl, token, readToken })) {
-      consult += fragment;
-      yield fragment;
-    }
-    await rememberConsult(lessonStore, plan.question, consult);
+    yield* consultOpenAI(plan.question, { signal, fetchImpl, token, readToken, lessonStore });
     return;
   }
 
@@ -61,12 +56,23 @@ export async function* roomTurnTokens(messages, {
 
   if (plan.mode !== "self" || !plan.question) return;
   yield "\n\n";
+  yield* consultOpenAI(plan.question, { signal, fetchImpl, token, readToken, lessonStore });
+}
+
+async function* consultOpenAI(question, { signal, fetchImpl, token, readToken, lessonStore }) {
   let consult = "";
-  for await (const fragment of askOpenAITokens(plan.question, { signal, fetchImpl, token, readToken })) {
-    consult += fragment;
-    yield fragment;
+  try {
+    for await (const fragment of askOpenAITokens(question, { signal, fetchImpl, token, readToken })) {
+      consult += fragment;
+      yield fragment;
+    }
+  } catch {
+    if (!consult.includes(OPENAI_LOCAL_UNAVAILABLE)) {
+      yield OPENAI_LOCAL_UNAVAILABLE;
+      consult += OPENAI_LOCAL_UNAVAILABLE;
+    }
   }
-  await rememberConsult(lessonStore, plan.question, consult);
+  await rememberConsult(lessonStore, question, consult);
 }
 
 export async function roomTurnAnswer(messages, options) {

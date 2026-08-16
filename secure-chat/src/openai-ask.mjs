@@ -97,9 +97,13 @@ async function defaultProxyToken() {
 }
 
 export async function resolveLocalOpenAIToken(options = {}) {
-  if (Object.hasOwn(options, "token")) return String(options.token ?? "").trim();
-  if (typeof options.readToken === "function") return String(await options.readToken() ?? "").trim();
-  return defaultProxyToken();
+  try {
+    if (Object.hasOwn(options, "token")) return String(options.token ?? "").trim();
+    if (typeof options.readToken === "function") return String(await options.readToken() ?? "").trim();
+    return defaultProxyToken();
+  } catch {
+    return "";
+  }
 }
 
 function requestHeaders(token) {

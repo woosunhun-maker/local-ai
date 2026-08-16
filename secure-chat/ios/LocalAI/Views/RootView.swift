@@ -28,16 +28,23 @@ struct RootView: View {
 
     private func openMirror(_ url: URL) async {
         guard let link = MirrorLink(url: url) else { return }
-        do {
-            if let pin = link.pin {
+        if let pin = link.pin {
+            do {
                 try await HouseClient.shared.pair(pin: pin)
                 paired = true
+            } catch {
+                // PIN이 이미 쓰였거나 만료돼도, 키체인에 토큰이 있으면 말은 보낸다.
+                paired = HouseClient.shared.isPaired
             }
-            if let text = link.text, HouseClient.shared.isPaired {
-                paired = true
-                let stream = try await HouseClient.shared.say(text: text)
-                for try await _ in stream { }
-            }
+        }
+        guard let text = link.text, HouseClient.shared.isPaired else {
+            paired = HouseClient.shared.isPaired
+            return
+        }
+        do {
+            paired = true
+            let stream = try await HouseClient.shared.say(text: text)
+            for try await _ in stream { }
         } catch {
             paired = HouseClient.shared.isPaired
         }

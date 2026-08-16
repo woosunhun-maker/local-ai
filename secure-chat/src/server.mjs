@@ -184,7 +184,8 @@ function conversationIdFrom(pathname, suffix = "") {
 }
 
 function writeSse(response, event, data) {
-  response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  if (response.writableEnded || response.destroyed) return false;
+  return response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
 async function streamRoomSay(response, roomStore, started, body = {}, lessonStore) {
@@ -204,6 +205,7 @@ async function streamRoomSay(response, roomStore, started, body = {}, lessonStor
   });
   const abort = new AbortController();
   liveJobs.set(started.job.id, abort);
+  let clientGone = false;
   try {
     let answer = "";
     for await (const fragment of roomTurnTokens(started.room.messages, {
@@ -215,23 +217,29 @@ async function streamRoomSay(response, roomStore, started, body = {}, lessonStor
     })) {
       if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
       answer += fragment;
-      writeSse(response, "delta", { choices: [{ index: 0, delta: { content: fragment } }] });
+      if (!clientGone) {
+        try {
+          writeSse(response, "delta", { choices: [{ index: 0, delta: { content: fragment } }] });
+        } catch {
+          clientGone = true;
+        }
+      }
     }
     if (!answer.trim()) throw new Error("empty_room_model_response");
     const room = await roomStore.finishJob(started.job.id, { ok: true, answer });
-    writeSse(response, "done", { ok: true, job: room.jobs.at(-1), room });
+    if (!clientGone) writeSse(response, "done", { ok: true, job: room.jobs.at(-1), room });
   } catch (error) {
     const cancelled = error?.name === "AbortError" || abort.signal.aborted;
     const room = await roomStore.finishJob(started.job.id, {
       ok: false,
       answer: cancelled ? "중단했습니다." : "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
     });
-    if (!cancelled) writeSse(response, "error", { message: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다." });
-    writeSse(response, "done", { ok: false, job: room.jobs.at(-1), room });
+    if (!clientGone && !cancelled) writeSse(response, "error", { message: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다." });
+    if (!clientGone) writeSse(response, "done", { ok: false, job: room.jobs.at(-1), room });
   } finally {
     liveJobs.delete(started.job.id);
   }
-  response.end();
+  if (!response.writableEnded) response.end();
 }
 
 async function streamConversationSay(response, conversationStore, jobStore, conversationId, body) {
@@ -357,10 +365,14 @@ function finishStreamError(response, requestId, code, message) {
 }
 
 async function proxyToken() {
-  const result = await execFileAsync("/usr/bin/security", [
-    "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w",
-  ], { encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 });
-  return result.stdout.trim();
+  try {
+    const result = await execFileAsync("/usr/bin/security", [
+      "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w",
+    ], { encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 });
+    return result.stdout.trim();
+  } catch {
+    return "";
+  }
 }
 
 async function processJson(scriptPath, value, timeoutMs = 60_000) {

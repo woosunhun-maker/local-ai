@@ -89,3 +89,25 @@ test("스스로 물을 때 로컬 답 뒤에 맥 오픈 답을 붙이고 교훈�
   assert.match(snap.lessons[0].lesson, /sorted/);
   await rm(root, { recursive: true, force: true });
 });
+
+test("오픈이 실패해도 로컬 답은 남기고 안내만 붙인다", async () => {
+  const answer = await roomTurnAnswer(
+    [{ role: "user", content: "파이썬 리스트 정렬은 어떻게 해" }],
+    {
+      token: "local-proxy",
+      fetchImpl: async (url) => {
+        if (String(url).includes("11434")) {
+          return {
+            ok: true,
+            body: (async function* () {
+              yield Buffer.from(`${JSON.stringify({ message: { content: "로컬은 sort" }})}\n`);
+            })(),
+          };
+        }
+        throw new Error("proxy_down");
+      },
+    },
+  );
+  assert.match(answer, /로컬은 sort/);
+  assert.match(answer, /127\.0\.0\.1:18790/);
+});
