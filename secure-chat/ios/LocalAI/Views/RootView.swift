@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @State private var paired = HouseClient.shared.isPaired
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -15,5 +16,10 @@ struct RootView: View {
             }
         }
         .preferredColorScheme(.light)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                paired = HouseClient.shared.isPaired
+            }
+        }
     }
 }

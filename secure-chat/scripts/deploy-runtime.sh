@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly RELEASE_VERSION="1.2.0"
-readonly RELEASE_BUILD="12"
+readonly RELEASE_BUILD="14"
 readonly SOURCE_ROOT="/Users/hun/Documents/로컬ai/secure-chat"
 readonly APP_ROOT="/Users/hun/PrivateAI/app"
 readonly TARGET_ROOT="${APP_ROOT}/secure-chat"

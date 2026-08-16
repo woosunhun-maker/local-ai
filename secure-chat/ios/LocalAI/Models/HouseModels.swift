@@ -21,7 +21,7 @@ enum HouseError: LocalizedError, Equatable {
             switch code {
             case 401: return "맥 연결이 만료됐습니다. 다시 연결해 주세요."
             case 403: return "이 기기로는 그 요청을 할 수 없습니다."
-            case 404: return "대화가 없거나 이미 지워졌습니다."
+            case 404: return "맥에서 그 방을 찾지 못했습니다."
             case 429: return "요청이 많습니다. 잠시 후 다시 보내 주세요."
             case 502...599: return "맥의 로컬 AI가 잠시 응답하지 않습니다."
             default: return "맥이 요청을 거절했습니다. (HTTP \(code))"
@@ -70,12 +70,10 @@ struct HouseMessage: Identifiable, Equatable, Sendable {
     var delivery: Delivery
 }
 
-struct HouseTalk: Identifiable, Equatable, Sendable {
-    let id: UUID
-    var title: String
-    let createdAt: Date
-    var updatedAt: Date
+struct HouseRoom: Equatable, Sendable {
     var messages: [HouseMessage]
+    var jobLabel: String?
+    var updatedAt: Date
 }
 
 enum HouseStreamEvent: Equatable, Sendable {

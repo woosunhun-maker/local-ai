@@ -12,7 +12,7 @@ actor HouseClient {
             self.session = session
         } else {
             let configuration = URLSessionConfiguration.ephemeral
-            configuration.waitsForConnectivity = false
+            configuration.waitsForConnectivity = true
             configuration.timeoutIntervalForRequest = 20
             configuration.timeoutIntervalForResource = 620
             self.session = URLSession(configuration: configuration)
@@ -80,39 +80,39 @@ actor HouseClient {
     }
 
     func ping() async throws {
-        struct Status: Decodable { let ok: Bool }
-        let status: Status = try await request(path: "/api/status")
-        guard status.ok else { throw HouseError.malformedResponse }
+        var lastError: Error = HouseError.malformedResponse
+        for attempt in 0..<3 {
+            do {
+                struct Status: Decodable { let ok: Bool }
+                let status: Status = try await request(path: "/api/status")
+                guard status.ok else { throw HouseError.malformedResponse }
+                return
+            } catch HouseError.notPaired {
+                throw HouseError.notPaired
+            } catch HouseError.rejected(401) {
+                throw HouseError.rejected(401)
+            } catch {
+                lastError = error
+                if attempt < 2 {
+                    try await Task.sleep(for: .milliseconds(400))
+                }
+            }
+        }
+        throw lastError
     }
 
-    func talks() async throws -> [HouseTalk] {
-        struct Envelope: Decodable { let conversations: [TalkDTO] }
-        let envelope: Envelope = try await request(path: "/api/conversations?full=1")
-        return envelope.conversations.map(\.asTalk)
+    func room() async throws -> HouseRoom {
+        let dto: RoomDTO = try await request(path: "/api/room")
+        return dto.asRoom
     }
 
-    func createTalk() async throws -> HouseTalk {
-        let dto: TalkDTO = try await request(path: "/api/conversations", method: "POST")
-        return dto.asTalk
-    }
-
-    func removeTalk(id: UUID) async throws {
-        struct Ok: Decodable { let ok: Bool }
-        let _: Ok = try await request(
-            path: "/api/conversations/\(id.uuidString.lowercased())",
-            method: "DELETE"
-        )
-    }
-
-    func say(talkId: UUID, text: String) throws -> AsyncThrowingStream<HouseStreamEvent, Error> {
+    func say(text: String) throws -> AsyncThrowingStream<HouseStreamEvent, Error> {
         struct Body: Encodable {
             let text: String
             let clientRequestId: String
         }
         guard let token = KeychainStore.token() else { throw HouseError.notPaired }
-        var request = URLRequest(
-            url: baseURL.appending(path: "/api/conversations/\(talkId.uuidString.lowercased())/say")
-        )
+        var request = URLRequest(url: baseURL.appending(path: "/api/room/say"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -205,37 +205,43 @@ actor HouseClient {
     }
 }
 
-private struct TalkDTO: Decodable {
-    let id: UUID
-    let title: String
-    let createdAt: String
+private struct RoomDTO: Decodable {
+    let messages: [RoomMessageDTO]
+    let jobs: [RoomJobDTO]?
     let updatedAt: String
-    let messages: [MessageDTO]?
+}
 
-    var asTalk: HouseTalk {
-        HouseTalk(
-            id: id,
-            title: title,
-            createdAt: HouseDate.parse(createdAt),
-            updatedAt: HouseDate.parse(updatedAt),
-            messages: (messages ?? []).compactMap(\.asMessage)
+private struct RoomMessageDTO: Decodable {
+    let id: UUID
+    let role: String
+    let content: String
+    let at: String
+}
+
+private struct RoomJobDTO: Decodable {
+    let id: UUID
+    let status: String
+    let label: String
+}
+
+private extension RoomDTO {
+    var asRoom: HouseRoom {
+        HouseRoom(
+            messages: messages.compactMap(\.asMessage),
+            jobLabel: jobs?.last(where: { $0.status == "running" })?.label,
+            updatedAt: HouseDate.parse(updatedAt)
         )
     }
 }
 
-private struct MessageDTO: Decodable {
-    let id: UUID
-    let role: String
-    let content: String
-    let createdAt: String
-
+private extension RoomMessageDTO {
     var asMessage: HouseMessage? {
         guard let role = HouseMessage.Role(rawValue: role) else { return nil }
         return HouseMessage(
             id: id,
             role: role,
             text: content,
-            createdAt: HouseDate.parse(createdAt),
+            createdAt: HouseDate.parse(at),
             delivery: .done
         )
     }

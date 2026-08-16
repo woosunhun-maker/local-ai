@@ -21,6 +21,7 @@ import {
 } from "./growth/openclaw-dispatch-adapter.mjs";
 import { GrowthProposalStore } from "./growth/proposal-store.mjs";
 import { assertChatModeAccess, resolveChatMode, trimChatContext } from "./chat-routing.mjs";
+import { readOwnerAppPhoto } from "./vision/app-photo-read.mjs";
 import {
   ConfirmedMemoryStore,
   ConfirmedMemoryStoreError,
@@ -57,6 +58,12 @@ import { IntentShadowMonitor } from "./trust/intent-shadow-monitor.mjs";
 import { codexWorkerReady } from "./telegram/codex-runtime-readiness.mjs";
 import { OWNER_ACTION_KIND } from "./telegram/owner-action-plan.mjs";
 import { OwnerActionExecutor } from "./telegram/owner-action-executor.mjs";
+import { RoomStore } from "./room-store.mjs";
+import { askRoomModel, askRoomModelTokens } from "./room-ask.mjs";
+import { PairPinStore } from "./pair-pin.mjs";
+import { ConversationStore } from "./conversation-store.mjs";
+import { JoinStore } from "./join-store.mjs";
+import { CAPABILITIES, JobStore } from "./job-store.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = "/Users/hun/PrivateAI";
@@ -68,6 +75,15 @@ const FAST_MODEL = assertConversationModel(process.env.LOCAL_AI_FAST_MODEL ?? LO
 const GROWTH_TRANSPORT = process.env.LOCAL_AI_GROWTH_TRANSPORT ?? "disabled";
 const INTENT_SHADOW_MODE = process.env.LOCAL_AI_INTENT_SHADOW ?? "disabled";
 const AUTH_PATH = `${ROOT}/data/secure-chat/auth.json`;
+const ROOM_PATH = `${ROOT}/data/secure-chat/room.json`;
+const CONVERSATION_PATH = `${ROOT}/data/secure-chat/conversations.json`;
+const CONVERSATION_IMAGE_DIR = `${ROOT}/data/secure-chat/chat-images`;
+const JOIN_PATH = `${ROOT}/data/secure-chat/joins.json`;
+const JOB_PATH = `${ROOT}/data/secure-chat/jobs.json`;
+const liveJobs = new Map();
+const PAIR_PIN_PATH = `${ROOT}/data/secure-chat/pair-pins.json`;
+const SAY_BODY_BYTES = 12 * 1024 * 1024;
+const LAN_PUBLIC_URL = process.env.LOCAL_AI_CHAT_PUBLIC_URL ?? "http://192.168.50.235:18791/";
 const APPROVAL_PATH = `${ROOT}/data/secure-chat/approvals.json`;
 const PROACTIVE_PATH = `${ROOT}/data/secure-chat/proactive.json`;
 const GROWTH_ROOT = `${ROOT}/data/growth`;
@@ -105,35 +121,163 @@ const STATIC_FILES = new Map([
 function securityHeaders(contentType) {
   return {
     "Content-Type": contentType,
-    "Cache-Control": contentType.startsWith("text/html") ? "no-store" : "public, max-age=300",
+    "Cache-Control": contentType.startsWith("text/html") || contentType.includes("javascript") || contentType.includes("css")
+      ? "no-store"
+      : "public, max-age=300",
     "Content-Security-Policy": "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; manifest-src 'self'; object-src 'none'; script-src 'self'; style-src 'self'",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
-    "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    "Permissions-Policy": "camera=(self), display-capture=(self), geolocation=(), microphone=(), payment=(), usb=()",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
   };
 }
 
-function json(response, status, value) {
-  response.writeHead(status, { ...securityHeaders("application/json; charset=utf-8"), "Cache-Control": "no-store" });
+function json(response, status, value, extraHeaders = {}) {
+  response.writeHead(status, {
+    ...securityHeaders("application/json; charset=utf-8"),
+    "Cache-Control": "no-store",
+    ...extraHeaders,
+  });
   response.end(`${JSON.stringify(value)}\n`);
 }
 
-async function readBody(request) {
+function roomCookie(token) {
+  return { "Set-Cookie": `room_token=${encodeURIComponent(token)}; Path=/; Max-Age=31536000; SameSite=Lax` };
+}
+
+function cookieToken(request) {
+  const match = /(?:^|;\s*)room_token=([^;]+)/.exec(request.headers.cookie ?? "");
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function readBody(request, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("too_large"), { statusCode: 413 });
+    if (size > maxBytes) throw Object.assign(new Error("too_large"), { statusCode: 413 });
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw.trim()) return {};
+  return JSON.parse(raw);
 }
 
 function bearer(request) {
-  return /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "")?.[1] ?? "";
+  return /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "")?.[1] ?? cookieToken(request);
+}
+
+function isLoopback(request) {
+  const ip = request.socket?.remoteAddress ?? "";
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+}
+
+function conversationIdFrom(pathname, suffix = "") {
+  const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^/api/conversations/([0-9a-f-]{36})${escaped}$`, "i").exec(pathname)?.[1] ?? "";
+}
+
+function writeSse(response, event, data) {
+  response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+async function streamRoomSay(response, roomStore, started) {
+  response.writeHead(200, {
+    ...securityHeaders("text/event-stream; charset=utf-8"),
+    "Cache-Control": "no-store, no-transform",
+  });
+  writeSse(response, "status", { label: started.job.label, job: started.job });
+  const abort = new AbortController();
+  liveJobs.set(started.job.id, abort);
+  try {
+    let answer = "";
+    for await (const fragment of askRoomModelTokens(started.room.messages, { signal: abort.signal })) {
+      if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
+      answer += fragment;
+      writeSse(response, "delta", { choices: [{ index: 0, delta: { content: fragment } }] });
+    }
+    if (!answer.trim()) throw new Error("empty_room_model_response");
+    const room = await roomStore.finishJob(started.job.id, { ok: true, answer });
+    writeSse(response, "done", { ok: true, job: room.jobs.at(-1), room });
+  } catch (error) {
+    const cancelled = error?.name === "AbortError" || abort.signal.aborted;
+    const room = await roomStore.finishJob(started.job.id, {
+      ok: false,
+      answer: cancelled ? "중단했습니다." : "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
+    });
+    if (!cancelled) writeSse(response, "error", { message: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다." });
+    writeSse(response, "done", { ok: false, job: room.jobs.at(-1), room });
+  } finally {
+    liveJobs.delete(started.job.id);
+  }
+  response.end();
+}
+
+async function streamConversationSay(response, conversationStore, jobStore, conversationId, body) {
+  const title = String(body?.text ?? "사진").replace(/\s+/g, " ").trim().slice(0, 48) || "사진";
+  const accepted = await jobStore.start({
+    conversationId,
+    clientRequestId: body?.clientRequestId,
+    title,
+    detail: "확인하고 있습니다.",
+  });
+  response.writeHead(200, {
+    ...securityHeaders("text/event-stream; charset=utf-8"),
+    "Cache-Control": "no-store, no-transform",
+  });
+  writeSse(response, "status", { requestId: accepted.job.id, conversationId, job: accepted.job, replay: accepted.replay });
+  if (accepted.replay) {
+    writeSse(response, "done", { requestId: accepted.job.id, ok: accepted.job.status === "done", job: accepted.job, replay: true });
+    response.end();
+    return;
+  }
+  const abort = new AbortController();
+  liveJobs.set(accepted.job.id, abort);
+  try {
+    const started = await conversationStore.addUser(conversationId, {
+      text: body?.text,
+      images: body?.images,
+    });
+    await jobStore.update(accepted.job.id, { userMessageId: started.message.id, detail: "확인하고 있습니다." });
+    const messages = started.conversation.messages.map((item) => {
+      const extra = item.images?.length ? `\n[사진 ${item.images.length}장]` : "";
+      return { role: item.role, content: `${item.content}${extra}` };
+    });
+    let answer = "";
+    for await (const fragment of askRoomModelTokens(messages, { signal: abort.signal })) {
+      if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
+      answer += fragment;
+      writeSse(response, "delta", { requestId: accepted.job.id, jobId: accepted.job.id, choices: [{ index: 0, delta: { content: fragment } }] });
+    }
+    if (!answer.trim()) throw new Error("empty_room_model_response");
+    const saved = await conversationStore.addAssistant(conversationId, answer);
+    const job = await jobStore.update(accepted.job.id, { status: "done", detail: "끝났습니다." });
+    writeSse(response, "done", {
+      requestId: accepted.job.id,
+      ok: true,
+      job,
+      message: saved.message,
+      conversation: { id: saved.conversation.id, title: saved.conversation.title },
+    });
+  } catch (error) {
+    const cancelled = error?.name === "AbortError" || abort.signal.aborted;
+    const job = await jobStore.update(accepted.job.id, {
+      status: cancelled ? "cancelled" : "failed",
+      detail: cancelled ? "중단했습니다." : "지금은 답을 못 만들었습니다.",
+    });
+    writeSse(response, cancelled ? "done" : "error", {
+      requestId: accepted.job.id,
+      ok: false,
+      job,
+      message: job.detail,
+    });
+    if (!cancelled) writeSse(response, "done", { requestId: accepted.job.id, ok: false, job });
+  } finally {
+    liveJobs.delete(accepted.job.id);
+  }
+  response.end();
 }
 
 function originAllowed(request) {
@@ -167,7 +311,8 @@ function validateChat(body) {
   if (!["auto", "fast", "deep"].includes(mode)) {
     throw Object.assign(new Error("invalid_mode"), { statusCode: 400 });
   }
-  return { messages, stream: body.stream === true, mode };
+  const image = typeof body.image === "string" && body.image.trim() ? body.image.trim() : "";
+  return { messages, stream: body.stream === true, mode, image };
 }
 
 function beginEventStream(response, requestId) {
@@ -431,6 +576,15 @@ async function forwardChat(request, response, device, body, intentShadow = null,
   const requestId = randomUUID();
   payload.mode = mode;
   payload.messages = trimChatContext(payload.messages, mode);
+  if (payload.image) {
+    const last = payload.messages.at(-1);
+    if (!last || last.role !== "user") {
+      throw Object.assign(new Error("invalid_app_image_sequence"), { statusCode: 400 });
+    }
+    const ocr = await readOwnerAppPhoto(payload.image);
+    last.content = `${last.content}\n\n[로컬 앱 사진 인식]\n${ocr}`.slice(0, 16_000);
+    delete payload.image;
+  }
   await structuredLog.emit("request_received", {
     correlationId: requestId,
     ingress: "secure_chat",
@@ -494,6 +648,11 @@ async function main() {
   const intentShadow = INTENT_SHADOW_MODE === "enabled" ? new IntentShadowMonitor(INTENT_SHADOW_PATH) : null;
   const ttsRegistry = await createRuntimeTtsRegistry();
   const confirmedMemory = await new ConfirmedMemoryStore(CONFIRMED_MEMORY_PATH).initialize();
+  const roomStore = await new RoomStore(ROOM_PATH).initialize();
+  const conversationStore = await new ConversationStore(CONVERSATION_PATH, CONVERSATION_IMAGE_DIR).initialize();
+  const jobStore = await new JobStore(JOB_PATH).initialize();
+  const joinStore = await new JoinStore(JOIN_PATH).initialize();
+  const pairPins = await new PairPinStore(PAIR_PIN_PATH).initialize();
   const decisionMemory = await new DecisionMemoryStore(DECISION_MEMORY_PATH).initialize();
   const discussionContext = await new DiscussionContextStore(DISCUSSION_CONTEXT_PATH).initialize();
   const memoryContext = createMemoryContextFacade({
@@ -576,6 +735,9 @@ async function main() {
       if (!originAllowed(request)) return json(response, 403, { error: "origin_denied" });
       const url = new URL(request.url, `http://${request.headers.host ?? "127.0.0.1"}`);
       if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, exposure: "loopback_only" });
+      if (request.method === "GET" && url.pathname === "/api/capabilities") {
+        return json(response, 200, CAPABILITIES);
+      }
 
       if (request.method === "GET" && STATIC_FILES.has(url.pathname)) {
         const [filename, contentType] = STATIC_FILES.get(url.pathname);
@@ -586,11 +748,31 @@ async function main() {
 
       if (request.method === "POST" && url.pathname === "/api/pair") {
         const body = await readBody(request);
-        if (typeof body?.secret !== "string" || typeof body?.deviceName !== "string") return json(response, 400, { error: "invalid_pairing" });
-        const claimed = await authStore.claimPairing(body.secret, body.deviceName);
+        if (typeof body?.deviceName !== "string") return json(response, 400, { error: "invalid_pairing" });
+        let secret = typeof body?.secret === "string" ? body.secret : "";
+        if (!secret && body?.pin) secret = await pairPins.take(body.pin) ?? "";
+        if (!secret) return json(response, 400, { error: "invalid_pairing" });
+        const claimed = await authStore.claimPairing(secret, body.deviceName);
         if (!claimed) return json(response, 401, { error: "pairing_expired_or_used" });
         await audit({ event: "device_paired", deviceHash: createHash("sha256").update(claimed.deviceId).digest("hex") });
-        return json(response, 201, claimed);
+        return json(response, 201, claimed, roomCookie(claimed.deviceToken));
+      }
+      if (request.method === "POST" && url.pathname === "/api/join-request") {
+        const body = await readBody(request);
+        return json(response, 201, await joinStore.request(body?.deviceName));
+      }
+      if (request.method === "GET" && url.pathname === "/api/join-wait") {
+        const waiting = await joinStore.wait(url.searchParams.get("id"));
+        return json(response, 200, waiting, waiting.status === "ready" ? roomCookie(waiting.deviceToken) : {});
+      }
+      if (request.method === "POST" && url.pathname === "/api/local-pair") {
+        if (!isLoopback(request)) return json(response, 403, { error: "loopback_only" });
+        const body = await readBody(request).catch(() => ({}));
+        const pairing = await authStore.createPairing(undefined, { role: "owner" });
+        const claimed = await authStore.claimPairing(pairing.secret, String(body?.deviceName ?? "맥 웹").slice(0, 60));
+        if (!claimed) return json(response, 401, { error: "pairing_expired_or_used" });
+        await audit({ event: "device_local_paired", deviceHash: createHash("sha256").update(claimed.deviceId).digest("hex") });
+        return json(response, 201, claimed, roomCookie(claimed.deviceToken));
       }
 
       const device = await authStore.authenticate(bearer(request));
@@ -613,6 +795,120 @@ async function main() {
           activeMemoryCount: await confirmedMemory.countActive(),
           intentShadow: intentShadow ? { enabled: true, metrics: await intentShadow.status() } : { enabled: false },
           iosApp: getIosAppReleaseInfo(),
+          lanUrl: LAN_PUBLIC_URL,
+          loopback: isLoopback(request),
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/api/room") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, await roomStore.snapshot());
+      }
+      if (request.method === "POST" && url.pathname === "/api/room/say") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        const body = await readBody(request);
+        const started = await roomStore.addUser(body?.text);
+        if (body?.stream === false) {
+          try {
+            const answer = await askRoomModel(started.room.messages);
+            return json(response, 200, await roomStore.finishJob(started.job.id, { ok: true, answer }));
+          } catch (error) {
+            await audit({ event: "room_say_failed", errorClass: error?.name ?? "Error" });
+            return json(response, 200, await roomStore.finishJob(started.job.id, {
+              ok: false,
+              answer: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
+            }));
+          }
+        }
+        return streamRoomSay(response, roomStore, started);
+      }
+      if (request.method === "GET" && url.pathname === "/api/join-pending") {
+        if (device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        return json(response, 200, { requests: await joinStore.pending() });
+      }
+      if (request.method === "POST" && url.pathname === "/api/join-allow") {
+        if (device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
+        const body = await readBody(request);
+        const pending = (await joinStore.pending()).find((item) => item.id === body?.id);
+        if (!pending) return json(response, 404, { error: "join_not_found" });
+        const pairing = await authStore.createPairing(30 * 60 * 1000, { role: "owner" });
+        const claimed = await authStore.claimPairing(pairing.secret, pending.deviceName);
+        if (!claimed) return json(response, 401, { error: "pairing_expired_or_used" });
+        await joinStore.allow(pending.id, claimed.deviceToken);
+        await audit({ event: "device_join_allowed", deviceHash: createHash("sha256").update(claimed.deviceId).digest("hex") });
+        return json(response, 201, { ok: true, id: pending.id });
+      }
+      if (request.method === "GET" && url.pathname === "/api/conversations") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, {
+          conversations: await conversationStore.list({ full: url.searchParams.get("full") === "1" }),
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/api/conversations") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 201, await conversationStore.create());
+      }
+      {
+        const conversationId = conversationIdFrom(url.pathname);
+        if (conversationId && hasScope(device, "chat")) {
+          if (request.method === "GET") return json(response, 200, await conversationStore.get(conversationId));
+          if (request.method === "DELETE") return json(response, 200, await conversationStore.remove(conversationId));
+          if (request.method === "PUT") {
+            const body = await readBody(request, SAY_BODY_BYTES);
+            return json(response, 200, await conversationStore.upsert({ ...body, id: conversationId }));
+          }
+        }
+        const sayId = conversationIdFrom(url.pathname, "/say");
+        if (sayId && request.method === "POST") {
+          if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+          return streamConversationSay(response, conversationStore, jobStore, sayId, await readBody(request, SAY_BODY_BYTES));
+        }
+        const imageMatch = /^\/api\/conversations\/([0-9a-f-]{36})\/images\/([0-9a-f-]{36})$/i.exec(url.pathname);
+        if (imageMatch && request.method === "GET") {
+          if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+          const image = await conversationStore.readImage(imageMatch[1], imageMatch[2]);
+          response.writeHead(200, {
+            ...securityHeaders(image.mime),
+            "Cache-Control": "no-store",
+          });
+          response.end(image.bytes);
+          return;
+        }
+      }
+      if (request.method === "GET" && url.pathname === "/api/jobs") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, {
+          jobs: await jobStore.list({
+            conversationId: url.searchParams.get("conversationId") || undefined,
+            status: url.searchParams.get("status") || undefined,
+          }),
+        });
+      }
+      {
+        const jobId = /^\/api\/jobs\/([0-9a-f-]{36})$/i.exec(url.pathname)?.[1];
+        if (jobId && request.method === "GET") {
+          if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+          return json(response, 200, await jobStore.get(jobId));
+        }
+        const cancelId = /^\/api\/jobs\/([0-9a-f-]{36})\/cancel$/i.exec(url.pathname)?.[1];
+        if (cancelId && request.method === "POST") {
+          if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+          liveJobs.get(cancelId)?.abort();
+          return json(response, 200, await jobStore.cancel(cancelId));
+        }
+      }
+      if (request.method === "GET" && url.pathname === "/api/events") {
+        if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
+        return json(response, 200, { events: await jobStore.events({ since: url.searchParams.get("since") || undefined }) });
+      }
+      if (request.method === "POST" && url.pathname === "/api/room/invite") {
+        if (!hasScope(device, "chat") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        const pairing = await authStore.createPairing(30 * 60 * 1000, { role: "owner" });
+        const pin = await pairPins.issue(pairing.secret, 30 * 60 * 1000);
+        return json(response, 201, {
+          pin,
+          expiresAt: new Date(pairing.expiresAt).toISOString(),
         });
       }
       if (request.method === "GET" && url.pathname === "/api/system/status") {
