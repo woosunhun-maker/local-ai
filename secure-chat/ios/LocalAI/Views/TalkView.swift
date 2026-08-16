@@ -36,6 +36,9 @@ final class TalkModel: ObservableObject {
             if !sending {
                 room = remote
                 statusLine = remote.jobLabel
+                if remote.pendingApproval != nil {
+                    pendingApproval = remote.pendingApproval
+                }
             } else if !keepMessages || room.messages.isEmpty {
                 room.updatedAt = remote.updatedAt
             }
@@ -174,13 +177,20 @@ final class TalkModel: ObservableObject {
     private func refreshApprovals() async {
         guard HouseClient.shared.isPaired, !deciding else { return }
         do {
-            if !approvalKeyReady {
+            let pending = try await HouseClient.shared.pendingApprovals()
+            pendingApproval = pending.first ?? room.pendingApproval
+        } catch {
+            if pendingApproval == nil {
+                pendingApproval = room.pendingApproval
+            }
+        }
+        if !approvalKeyReady {
+            do {
                 try await HouseClient.shared.registerApprovalKey()
                 approvalKeyReady = true
+            } catch {
+                approvalKeyReady = false
             }
-            pendingApproval = try await HouseClient.shared.pendingApprovals().first
-        } catch {
-            approvalKeyReady = false
         }
     }
 
@@ -241,9 +251,6 @@ struct TalkView: View {
                     .fill(HouseColor.rule)
                     .frame(height: 1)
                 messages
-                if let approval = model.pendingApproval {
-                    approvalCard(approval)
-                }
                 if let error = model.errorText {
                     Text(error)
                         .font(.footnote)
@@ -254,7 +261,12 @@ struct TalkView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                composer
+                VStack(spacing: 0) {
+                    if let approval = model.pendingApproval {
+                        approvalCard(approval)
+                    }
+                    composer
+                }
             }
         }
         .scrollDismissesKeyboard(.never)

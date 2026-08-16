@@ -64,7 +64,9 @@ import { askRoomModelTokens } from "./room-ask.mjs";
 import { LessonStore } from "./lesson-store.mjs";
 import {
   executeApprovedHouseDo,
+  findPendingHouseDo,
   isFaceIdGateCommand,
+  publicRoomApproval,
   ROOM_HOUSE_DO_KIND,
 } from "./room-faceid-gate.mjs";
 import { isMacDoCommand } from "./room-mac-do.mjs";
@@ -192,6 +194,13 @@ function conversationIdFrom(pathname, suffix = "") {
 function writeSse(response, event, data) {
   if (response.writableEnded || response.destroyed) return false;
   return response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+async function roomPayload(roomStore, approvalStore, room) {
+  const snapshot = room ?? await roomStore.snapshot();
+  const pending = await findPendingHouseDo(approvalStore);
+  const approval = publicRoomApproval(pending);
+  return { ...snapshot, approvals: approval ? [approval] : [] };
 }
 
 async function streamRoomSay(response, roomStore, started, body = {}, lessonStore, approvalStore) {
@@ -847,7 +856,7 @@ async function main() {
       }
       if (request.method === "GET" && url.pathname === "/api/room") {
         if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
-        return json(response, 200, await roomStore.snapshot());
+        return json(response, 200, await roomPayload(roomStore, approvalStore));
       }
       if (request.method === "POST" && url.pathname === "/api/room/clear") {
         if (!hasScope(device, "chat") || device.role !== "owner") {
@@ -874,13 +883,21 @@ async function main() {
               lessonStore,
               approvalStore,
             });
-            return json(response, 200, await roomStore.finishJob(started.job.id, { ok: true, answer }));
+            return json(response, 200, await roomPayload(
+              roomStore,
+              approvalStore,
+              await roomStore.finishJob(started.job.id, { ok: true, answer }),
+            ));
           } catch (error) {
             await audit({ event: "room_say_failed", errorClass: error?.name ?? "Error" });
-            return json(response, 200, await roomStore.finishJob(started.job.id, {
-              ok: false,
-              answer: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
-            }));
+            return json(response, 200, await roomPayload(
+              roomStore,
+              approvalStore,
+              await roomStore.finishJob(started.job.id, {
+                ok: false,
+                answer: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
+              }),
+            ));
           }
         }
         return streamRoomSay(response, roomStore, started, body, lessonStore, approvalStore);

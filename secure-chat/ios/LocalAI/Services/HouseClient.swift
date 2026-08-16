@@ -296,6 +296,7 @@ private struct RoomDTO: Decodable {
     let messages: [RoomMessageDTO]
     let jobs: [RoomJobDTO]?
     let updatedAt: String
+    let approvals: [ApprovalDTO]?
 }
 
 private struct RoomMessageDTO: Decodable {
@@ -316,7 +317,8 @@ private extension RoomDTO {
         HouseRoom(
             messages: messages.compactMap(\.asMessage),
             jobLabel: jobs?.last(where: { $0.status == "running" })?.label,
-            updatedAt: HouseDate.parse(updatedAt)
+            updatedAt: HouseDate.parse(updatedAt),
+            pendingApproval: approvals?.compactMap(\.asApproval).first
         )
     }
 }

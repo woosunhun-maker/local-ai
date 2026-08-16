@@ -2,7 +2,7 @@
  * 시킨 실행은 아이폰 앱의 Face ID/암호 한 번 뒤에만 맥이 한다.
  * macOS가 원격 AI에 Face ID를 열어주는 구조가 아니다.
  */
-import { doHouseSecurity } from "./room-mac-do.mjs";
+import { doHouseSecurity, isMacDoCommand } from "./room-mac-do.mjs";
 
 export const ROOM_HOUSE_DO_KIND = "room.house-do.v1";
 
@@ -52,15 +52,42 @@ export async function findPendingHouseDo(approvalStore) {
   return pending.find((entry) => entry.kind === ROOM_HOUSE_DO_KIND) ?? null;
 }
 
-export async function requestHouseDoApproval(text, { approvalStore } = {}) {
+export function publicRoomApproval(request) {
+  if (!request || request.kind !== ROOM_HOUSE_DO_KIND) return null;
+  return {
+    id: request.id,
+    kind: request.kind,
+    title: request.title,
+    summary: request.summary,
+    payloadSha256: request.payloadSha256,
+    nonce: request.nonce,
+    expiresAt: request.expiresAt,
+  };
+}
+
+export function lastDoText(messages, fallback = "방화벽·포트·계정·백업·감시 점검") {
+  if (!Array.isArray(messages)) return fallback;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const item = messages[index];
+    if (item?.role === "user" && isMacDoCommand(item.content)) return item.content;
+  }
+  return fallback;
+}
+
+export async function requestHouseDoApproval(text, { approvalStore, ttlMs = 30 * 60_000 } = {}) {
   const request = houseDoRequest(text);
   if (!approvalStore || typeof approvalStore.createRequest !== "function") {
     return formatFaceIdWait(request);
   }
   const pending = await findPendingHouseDo(approvalStore);
-  if (pending && pending.payload === request.payload) return formatFaceIdWait(pending);
-  const created = await approvalStore.createRequest(request, 10 * 60_000);
+  if (pending) return formatFaceIdWait(pending);
+  const created = await approvalStore.createRequest(request, ttlMs);
   return formatFaceIdWait(created);
+}
+
+export async function openFaceIdGate(messages, options = {}) {
+  const wait = await requestHouseDoApproval(lastDoText(messages), options);
+  return `${FACEID_GATE_REPLY}\n\n${wait}`;
 }
 
 export async function executeApprovedHouseDo({

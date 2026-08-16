@@ -74,6 +74,7 @@ struct HouseRoom: Equatable, Sendable {
     var messages: [HouseMessage]
     var jobLabel: String?
     var updatedAt: Date
+    var pendingApproval: HouseApproval? = nil
 }
 
 enum HouseStreamEvent: Equatable, Sendable {

@@ -39,6 +39,30 @@ test("결제 지시는 Face ID를 붙여도 막는다", () => {
   assert.equal(planSelfConsult("카드로 결제해 faceid로 승인받게").mode, "deny");
 });
 
+test("Face ID 구조 부탁은 승인 칸을 만들고 카드 문구를 남긴다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "faceid-gate-"));
+  const approvalStore = new ApprovalStore(join(root, "approvals.json"));
+  await approvalStore.initialize();
+  const answer = await roomTurnAnswer(
+    [
+      { role: "user", content: "방화벽 활성화 하고 백업하라" },
+      { role: "assistant", content: "가이드" },
+      { role: "user", content: "지시하면 1회 실행하고 faceid로 승인 받아야 해" },
+    ],
+    {
+      approvalStore,
+      fetchImpl: async () => {
+        throw new Error("should_not_call_model");
+      },
+    },
+  );
+  assert.match(answer, /그렇게 되어 있습니다/);
+  assert.match(answer, /Face ID 또는 암호/);
+  assert.equal((await approvalStore.listPending()).length, 1);
+  assert.equal((await approvalStore.listPending())[0].kind, ROOM_HOUSE_DO_KIND);
+  await rm(root, { recursive: true, force: true });
+});
+
 test("방 턴은 Face ID 구조 부탁에 불가능 답을 쓰지 않는다", async () => {
   const answer = await roomTurnAnswer(
     [{ role: "user", content: "지시하면 1회 실행하고 faceid로 승인 받아야 해" }],
@@ -48,7 +72,8 @@ test("방 턴은 Face ID 구조 부탁에 불가능 답을 쓰지 않는다", as
       },
     },
   );
-  assert.equal(answer, FACEID_GATE_REPLY);
+  assert.match(answer, /그렇게 되어 있습니다/);
+  assert.match(answer, /Face ID 또는 암호/);
   assert.doesNotMatch(answer, /불가능|외부 AI|Apple Pay/);
 });
 
