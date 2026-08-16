@@ -21,5 +21,25 @@ struct RootView: View {
                 paired = HouseClient.shared.isPaired
             }
         }
+        .onOpenURL { url in
+            Task { await openMirror(url) }
+        }
+    }
+
+    private func openMirror(_ url: URL) async {
+        guard let link = MirrorLink(url: url) else { return }
+        do {
+            if let pin = link.pin {
+                try await HouseClient.shared.pair(pin: pin)
+                paired = true
+            }
+            if let text = link.text, HouseClient.shared.isPaired {
+                paired = true
+                let stream = try await HouseClient.shared.say(text: text)
+                for try await _ in stream { }
+            }
+        } catch {
+            paired = HouseClient.shared.isPaired
+        }
     }
 }

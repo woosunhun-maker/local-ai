@@ -274,6 +274,7 @@ struct TalkView: View {
                 .frame(height: 1)
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("맥에게", text: $model.draft, axis: .vertical)
+                    .accessibilityIdentifier("house.composer")
                     .textFieldStyle(.plain)
                     .lineLimit(1...5)
                     .submitLabel(.send)
@@ -301,6 +302,8 @@ struct TalkView: View {
                 }
                 .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.sending)
                 .opacity(model.link == .linked || model.sending ? 1 : 0.35)
+                .accessibilityLabel(model.sending ? "중지" : "보내기")
+                .accessibilityIdentifier("house.send")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

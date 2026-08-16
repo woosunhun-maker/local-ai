@@ -28,6 +28,7 @@ targets:
     scheme:
       testTargets:
         - LocalAITests
+        - LocalAIUITests
   LocalAITests:
     type: bundle.unit-test
     platform: iOS
@@ -39,3 +40,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hun.localai.tests
         GENERATE_INFOPLIST_FILE: YES
+  LocalAIUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - LocalAIUITests
+    dependencies:
+      - target: LocalAI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hun.localai.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: LocalAI
+        DEVELOPMENT_TEAM: 8UUD85JPJ2

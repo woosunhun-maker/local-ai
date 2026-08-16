@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02BB8F0C11198B80F4F1B883 /* MirrorLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBA065D0C2C41E92AFF23855 /* MirrorLink.swift */; };
 		30714A9CA0EA08216A51F24B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AC77893B030276C9DE8C2AE6 /* Assets.xcassets */; };
 		3A90CA7E66362C1158F710CF /* PairingValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB55B1C44207A391A102439B /* PairingValidationTests.swift */; };
 		4CFA9B1041D9839C37C8CDEF /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5DA4800381515BA8D266DE5 /* RootView.swift */; };
@@ -17,11 +18,20 @@
 		968EEB0742C38E28EABDEA3A /* HouseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777B7498B6B404C46DFFF2B8 /* HouseClient.swift */; };
 		9A800D5A5CB2BEB44B67F5DB /* LocalAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F932D2E3C5F7B37AE6B83FB /* LocalAIApp.swift */; };
 		B0B973D83CE455D8D7735AF3 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C48F506ECBC4DC0C41B13416 /* KeychainStore.swift */; };
+		B8267C68784391CC9DD2494E /* MirrorLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B23C82FE7A26BE5A5366136D /* MirrorLinkTests.swift */; };
 		DC9F88661CDE7E27325AC31E /* HouseTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D232BE55F2EBEA7135A5B7 /* HouseTheme.swift */; };
+		E8CABAF13EC9207AA1392E9F /* MirrorLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E50B6D0FC9665AC9BAEA408 /* MirrorLinkTests.swift */; };
 		EDA7678D298887BA99F72A8A /* HouseSSETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B9D5D231D18E78218913183 /* HouseSSETests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		1308DC527168080B02DF2A8A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4F17A567946CA88CDE81C8F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A7C66B1DF60E38F77B0CD6A;
+			remoteInfo = LocalAI;
+		};
 		271285116FC41CC356CA26A1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4F17A567946CA88CDE81C8F9 /* Project object */;
@@ -33,11 +43,14 @@
 
 /* Begin PBXFileReference section */
 		167B7AACFE1A442B26C7473D /* LocalAI.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = LocalAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		256FC8C43039FF06419D1F05 /* LocalAIUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LocalAIUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B9D5D231D18E78218913183 /* HouseSSETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseSSETests.swift; sourceTree = "<group>"; };
+		3E50B6D0FC9665AC9BAEA408 /* MirrorLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorLinkTests.swift; sourceTree = "<group>"; };
 		4F932D2E3C5F7B37AE6B83FB /* LocalAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAIApp.swift; sourceTree = "<group>"; };
 		777B7498B6B404C46DFFF2B8 /* HouseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseClient.swift; sourceTree = "<group>"; };
 		A426E3DB25B7FB6F09BCFD67 /* LocalAI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LocalAI.entitlements; sourceTree = "<group>"; };
 		AC77893B030276C9DE8C2AE6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B23C82FE7A26BE5A5366136D /* MirrorLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorLinkTests.swift; sourceTree = "<group>"; };
 		BA6B57290A97463D7572CA59 /* PairingLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingLink.swift; sourceTree = "<group>"; };
 		BB55B1C44207A391A102439B /* PairingValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingValidationTests.swift; sourceTree = "<group>"; };
 		BF0DAA9795E44CBD2DB713B5 /* HouseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseModels.swift; sourceTree = "<group>"; };
@@ -48,6 +61,7 @@
 		EB8553BF7C06ABED0BAE787B /* PairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairView.swift; sourceTree = "<group>"; };
 		EF1FC6FAD373D558F35FA2B0 /* TalkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TalkView.swift; sourceTree = "<group>"; };
 		F52BF62BF010418D889FA0A9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FBA065D0C2C41E92AFF23855 /* MirrorLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorLink.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -56,8 +70,17 @@
 			children = (
 				20D0BB6654C6E99DD35CA19D /* LocalAI */,
 				21DD8011D00002F24CD1BDED /* LocalAITests */,
+				0DF393294200D766CBE654EC /* LocalAIUITests */,
 				47AA7952B0DB914081AD14C4 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		0DF393294200D766CBE654EC /* LocalAIUITests */ = {
+			isa = PBXGroup;
+			children = (
+				3E50B6D0FC9665AC9BAEA408 /* MirrorLinkTests.swift */,
+			);
+			path = LocalAIUITests;
 			sourceTree = "<group>";
 		};
 		151691541C7A9B904CE0A2F4 /* Views */ = {
@@ -97,6 +120,7 @@
 			isa = PBXGroup;
 			children = (
 				2B9D5D231D18E78218913183 /* HouseSSETests.swift */,
+				B23C82FE7A26BE5A5366136D /* MirrorLinkTests.swift */,
 				BB55B1C44207A391A102439B /* PairingValidationTests.swift */,
 			);
 			path = LocalAITests;
@@ -106,6 +130,7 @@
 			isa = PBXGroup;
 			children = (
 				BF0DAA9795E44CBD2DB713B5 /* HouseModels.swift */,
+				FBA065D0C2C41E92AFF23855 /* MirrorLink.swift */,
 				BA6B57290A97463D7572CA59 /* PairingLink.swift */,
 			);
 			path = Models;
@@ -116,6 +141,7 @@
 			children = (
 				167B7AACFE1A442B26C7473D /* LocalAI.app */,
 				E357D2F6C2D3FB31F71FC698 /* LocalAITests.xctest */,
+				256FC8C43039FF06419D1F05 /* LocalAIUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -176,6 +202,24 @@
 			productReference = 167B7AACFE1A442B26C7473D /* LocalAI.app */;
 			productType = "com.apple.product-type.application";
 		};
+		8D8FF3DEA3DD3BD15DD5F1D7 /* LocalAIUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9DD83828EB0E05E13CEE217C /* Build configuration list for PBXNativeTarget "LocalAIUITests" */;
+			buildPhases = (
+				DB7D50D809D6ABFA96F6FD27 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				00525FF03862E83F5EA2A628 /* PBXTargetDependency */,
+			);
+			name = LocalAIUITests;
+			packageProductDependencies = (
+			);
+			productName = LocalAIUITests;
+			productReference = 256FC8C43039FF06419D1F05 /* LocalAIUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -191,6 +235,11 @@
 					5A7C66B1DF60E38F77B0CD6A = {
 						DevelopmentTeam = 8UUD85JPJ2;
 						ProvisioningStyle = Automatic;
+					};
+					8D8FF3DEA3DD3BD15DD5F1D7 = {
+						DevelopmentTeam = 8UUD85JPJ2;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 5A7C66B1DF60E38F77B0CD6A;
 					};
 				};
 			};
@@ -210,6 +259,7 @@
 			targets = (
 				5A7C66B1DF60E38F77B0CD6A /* LocalAI */,
 				0418D2830103E8C0A0F7558D /* LocalAITests */,
+				8D8FF3DEA3DD3BD15DD5F1D7 /* LocalAIUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -231,7 +281,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				EDA7678D298887BA99F72A8A /* HouseSSETests.swift in Sources */,
+				B8267C68784391CC9DD2494E /* MirrorLinkTests.swift in Sources */,
 				3A90CA7E66362C1158F710CF /* PairingValidationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DB7D50D809D6ABFA96F6FD27 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E8CABAF13EC9207AA1392E9F /* MirrorLinkTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -244,6 +303,7 @@
 				DC9F88661CDE7E27325AC31E /* HouseTheme.swift in Sources */,
 				B0B973D83CE455D8D7735AF3 /* KeychainStore.swift in Sources */,
 				9A800D5A5CB2BEB44B67F5DB /* LocalAIApp.swift in Sources */,
+				02BB8F0C11198B80F4F1B883 /* MirrorLink.swift in Sources */,
 				963BD1480E9BFD9F1FDAB9FB /* PairView.swift in Sources */,
 				4E76E860AAE2CE6C797D2389 /* PairingLink.swift in Sources */,
 				4CFA9B1041D9839C37C8CDEF /* RootView.swift in Sources */,
@@ -254,6 +314,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		00525FF03862E83F5EA2A628 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A7C66B1DF60E38F77B0CD6A /* LocalAI */;
+			targetProxy = 1308DC527168080B02DF2A8A /* PBXContainerItemProxy */;
+		};
 		6141E167061245C4B4C6C626 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 5A7C66B1DF60E38F77B0CD6A /* LocalAI */;
@@ -286,7 +351,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LocalAI/Resources/LocalAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 8UUD85JPJ2;
 				INFOPLIST_FILE = LocalAI/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -375,6 +440,24 @@
 			};
 			name = Release;
 		};
+		4AF9496866D00E451B397192 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 8UUD85JPJ2;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hun.localai.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = LocalAI;
+			};
+			name = Debug;
+		};
 		8C2F8B52AA650D63A6529618 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -446,7 +529,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = LocalAI/Resources/LocalAI.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 8UUD85JPJ2;
 				INFOPLIST_FILE = LocalAI/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -458,6 +541,24 @@
 				PRODUCT_NAME = LocalAI;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		EFB90297635A40FE213F44BD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				DEVELOPMENT_TEAM = 8UUD85JPJ2;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hun.localai.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = LocalAI;
 			};
 			name = Release;
 		};
@@ -478,6 +579,15 @@
 			buildConfigurations = (
 				0D660AC72ADDB07C85E8393F /* Debug */,
 				DE92B262C0BFDF74565DBFD9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9DD83828EB0E05E13CEE217C /* Build configuration list for PBXNativeTarget "LocalAIUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4AF9496866D00E451B397192 /* Debug */,
+				EFB90297635A40FE213F44BD /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

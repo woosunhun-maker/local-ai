@@ -50,6 +50,17 @@
                ReferencedContainer = "container:LocalAI.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "8D8FF3DEA3DD3BD15DD5F1D7"
+               BuildableName = "LocalAIUITests.xctest"
+               BlueprintName = "LocalAIUITests"
+               ReferencedContainer = "container:LocalAI.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>
