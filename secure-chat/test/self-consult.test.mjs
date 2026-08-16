@@ -33,6 +33,7 @@ test("Cursor 화면을 보고 진행하라는 부탁은 오픈에게 보내지 �
   assert.equal(isOutsideRoomTask(text), true);
   assert.equal(planSelfConsult(text).mode, "mac_work");
   assert.equal(planSelfConsult(text).reason, "mac_work");
+  assert.equal(planSelfConsult("방금시킨거 진해ㅇ ㄱ").mode, "mac_work");
 });
 
 test("물어보라고 하지 않아도 일반 지식은 스스로 묻는다", () => {
@@ -99,7 +100,7 @@ test("스스로 물을 때 로컬 답 뒤에 맥 오픈 답을 붙이고 교훈�
   await rm(root, { recursive: true, force: true });
 });
 
-test("오픈이 실패해도 로컬 답은 남기고 안내만 붙인다", async () => {
+test("스스로 물은 오픈이 실패하면 로컬 답만 남기고 18790 안내는 붙이지 않는다", async () => {
   const answer = await roomTurnAnswer(
     [{ role: "user", content: "파이썬 리스트 정렬은 어떻게 해" }],
     {
@@ -119,7 +120,7 @@ test("오픈이 실패해도 로컬 답은 남기고 안내만 붙인다", async
     },
   );
   assert.match(answer, /로컬은 sort/);
-  assert.match(answer, /127\.0\.0\.1:18790/);
+  assert.doesNotMatch(answer, /127\.0\.0\.1:18790/);
 });
 
 test("오픈 게이트웨이가 꺼져 있으면 로컬 답만 하고 기다리지 않는다", async () => {

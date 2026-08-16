@@ -8,9 +8,17 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const HOUSE_REPO = "/Users/hun/Documents/로컬ai";
 
+export function isContinueCommand(text) {
+  const value = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!value || value.length > 40) return false;
+  return /방금\s*시킨|이어서|계속\s*해|진행\s*해|진행해|진해|ㄱㄱ/iu.test(value);
+}
+
 export function isMacWorkCommand(text) {
+  const value = String(text ?? "");
+  if (isContinueCommand(value)) return true;
   return /커서|cursor\s*ide|화면\s*보|그거\s*보|보면서\s*지시|지시해서\s*진행|나한테\s*보고|보고\s*좀|창을\s*보|맥\s*화면|모니터를\s*보/iu
-    .test(String(text ?? ""));
+    .test(value);
 }
 
 async function gitLine(args, { execFileImpl = execFileAsync } = {}) {
@@ -61,7 +69,7 @@ export async function collectMacWorkSnapshot({
 
 export function formatMacWorkReport(snapshot) {
   const lines = [
-    "아이폰에서 시킨 대로 맥이 집을 봤습니다. Cursor 창 픽셀은 안 보고, 같은 저장소와 서비스만 봤습니다.",
+    "시킨 대로 이어서 했습니다. 맥이 집을 봤습니다. 화면 픽셀은 안 보고 같은 저장소와 서비스만 봤습니다.",
   ];
   if (snapshot.branch) lines.push(`가지: ${snapshot.branch}`);
   if (snapshot.recent?.length) {

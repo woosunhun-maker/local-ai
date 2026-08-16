@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatMacWorkReport, isMacWorkCommand, reportMacWork } from "../src/room-mac-work.mjs";
+import { formatMacWorkReport, isContinueCommand, isMacWorkCommand, reportMacWork } from "../src/room-mac-work.mjs";
 import { roomTurnAnswer } from "../src/room-turn.mjs";
 
 test("아이폰에서 보고·진행 부탁은 맥 일 명령이다", () => {
   assert.equal(isMacWorkCommand("그거보면서 지시해서 진행하고 나한테 보고좀"), true);
   assert.equal(isMacWorkCommand("파이썬 리스트 정렬은 어떻게 해"), false);
+  assert.equal(isContinueCommand("방금시킨거 진해ㅇ ㄱ"), true);
+  assert.equal(isMacWorkCommand("방금시킨거 진행해"), true);
 });
 
 test("집 보고에는 비밀과 텔레그램이 없다", () => {
@@ -19,7 +21,7 @@ test("집 보고에는 비밀과 텔레그램이 없다", () => {
     openProxy: true,
     openGw: false,
   });
-  assert.match(text, /아이폰에서 시킨 대로/);
+  assert.match(text, /시킨 대로 이어서/);
   assert.match(text, /가지: cursor\/openai-mac-ask-201a/);
   assert.match(text, /오픈 게이트 꺼짐/);
   assert.doesNotMatch(text, /telegram|password|token/i);
@@ -37,8 +39,24 @@ test("방 턴은 맥 일 명령에 집 보고만 하고 모델을 부르지 않�
       execFileImpl: async () => ({ stdout: "" }),
     },
   );
-  assert.match(answer, /아이폰에서 시킨 대로/);
+  assert.match(answer, /시킨 대로 이어서/);
   assert.doesNotMatch(answer, /127\.0\.0\.1:18790/);
+});
+
+test("진행하라는 오타는 모델 거절 없이 집 보고만 한다", async () => {
+  const answer = await roomTurnAnswer(
+    [{ role: "user", content: "방금시킨거 진해ㅇ ㄱ" }],
+    {
+      fetchImpl: async (url) => {
+        if (String(url).includes("11434")) throw new Error("should_not_call_ollama");
+        if (String(url).includes("18790")) throw new Error("should_not_call_open");
+        return { ok: true, status: 200 };
+      },
+      execFileImpl: async () => ({ stdout: "cursor/openai-mac-ask-201a\n" }),
+    },
+  );
+  assert.match(answer, /시킨 대로 이어서/);
+  assert.doesNotMatch(answer, /통제할 수 없|127\.0\.0\.1:18790/);
 });
 
 test("보고는 exec와 probe 결과를 그대로 쓴다", async () => {
