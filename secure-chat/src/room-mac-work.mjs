@@ -5,6 +5,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { doHouseSecurity, isMacDoCommand } from "./room-mac-do.mjs";
+
 const execFileAsync = promisify(execFile);
 const HOUSE_REPO = "/Users/hun/Documents/로컬ai";
 
@@ -16,9 +18,25 @@ export function isContinueCommand(text) {
 
 export function isMacWorkCommand(text) {
   const value = String(text ?? "");
-  if (isContinueCommand(value)) return true;
+  if (isContinueCommand(value) || isMacDoCommand(value)) return true;
   return /커서|cursor\s*ide|화면\s*보|그거\s*보|보면서\s*지시|지시해서\s*진행|나한테\s*보고|보고\s*좀|창을\s*보|맥\s*화면|모니터를\s*보/iu
     .test(value);
+}
+
+export function previousUserText(messages, current) {
+  if (!Array.isArray(messages)) return "";
+  const users = messages.filter((item) => item?.role === "user" && typeof item.content === "string");
+  const last = users.at(-1)?.content ?? "";
+  if (current && last === current) return users.at(-2)?.content ?? "";
+  return last;
+}
+
+export async function runMacOwnerWork(text, options = {}) {
+  const prior = previousUserText(options.messages, text);
+  if (isMacDoCommand(text) || (isContinueCommand(text) && isMacDoCommand(prior))) {
+    return doHouseSecurity(options);
+  }
+  return reportMacWork(options);
 }
 
 async function gitLine(args, { execFileImpl = execFileAsync } = {}) {
