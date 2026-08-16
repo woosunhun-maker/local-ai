@@ -43,6 +43,10 @@ export async function* roomTurnTokens(messages, {
   execFileImpl,
 } = {}) {
   const plan = await planRoomTurn(messages, { ask, text, lessonStore });
+  if (plan.mode === "deny") {
+    yield plan.reply;
+    return;
+  }
   if (plan.mode === "mac_work") {
     yield await reportMacWork({ fetchImpl, execFileImpl });
     return;

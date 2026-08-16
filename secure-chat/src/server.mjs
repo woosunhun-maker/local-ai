@@ -199,7 +199,9 @@ async function streamRoomSay(response, roomStore, started, body = {}, lessonStor
       ? "맥이 오픈에게 묻는 중"
       : plan.mode === "mac_work"
         ? "맥이 집을 보고 있습니다"
-        : started.job.label,
+        : plan.mode === "deny"
+          ? "하지 않습니다"
+          : started.job.label,
     job: started.job,
     ask: plan.mode,
   });

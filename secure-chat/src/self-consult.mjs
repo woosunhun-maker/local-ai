@@ -2,6 +2,7 @@ import { containsCredential } from "./security/credential-patterns.mjs";
 import { parseOpenAIAsk, sanitizeOpenAIQuestion } from "./openai-ask.mjs";
 import { isRoomNoise } from "./room-ask.mjs";
 import { isMacWorkCommand } from "./room-mac-work.mjs";
+import { inspectRoomOwnerCommand } from "./room-owner-policy.mjs";
 
 export const SELF_CONSULT_COOLDOWN_MS = 8_000;
 export const SELF_CONSULT_DAILY_CAP = 40;
@@ -43,6 +44,17 @@ export function planSelfConsult(text, {
   lastConsultAt = 0,
   consultCountToday = 0,
 } = {}) {
+  const gate = inspectRoomOwnerCommand(text);
+  if (!gate.allow) {
+    return Object.freeze({
+      mode: "deny",
+      target: "deny",
+      consult: false,
+      question: "",
+      reason: gate.reason,
+      reply: gate.reply,
+    });
+  }
   const parsed = parseOpenAIAsk(text, { ask });
   if (parsed.target === "openai") {
     return Object.freeze({
