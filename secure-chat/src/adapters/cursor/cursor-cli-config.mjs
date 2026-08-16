@@ -66,6 +66,7 @@ export function buildLocalAiCursorPermissions() {
       "ls",
       "pwd",
       "cat",
+      // rg = ripgrep. 로컬 파일에서 글자만 찾는다. 인터넷이 필요 없다.
       "rg",
       "head",
       "tail",

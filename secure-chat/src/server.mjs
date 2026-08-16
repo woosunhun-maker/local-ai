@@ -59,7 +59,9 @@ import { codexWorkerReady } from "./telegram/codex-runtime-readiness.mjs";
 import { OWNER_ACTION_KIND } from "./telegram/owner-action-plan.mjs";
 import { OwnerActionExecutor } from "./telegram/owner-action-executor.mjs";
 import { RoomStore } from "./room-store.mjs";
-import { askRoomModel, askRoomModelTokens } from "./room-ask.mjs";
+import { openaiAskStatus } from "./openai-ask.mjs";
+import { askRoomModelTokens } from "./room-ask.mjs";
+import { planRoomTurn, roomTurnAnswer, roomTurnTokens } from "./room-turn.mjs";
 import { PairPinStore } from "./pair-pin.mjs";
 import { ConversationStore } from "./conversation-store.mjs";
 import { JoinStore } from "./join-store.mjs";
@@ -183,17 +185,26 @@ function writeSse(response, event, data) {
   response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-async function streamRoomSay(response, roomStore, started) {
+async function streamRoomSay(response, roomStore, started, body = {}) {
+  const plan = planRoomTurn(started.room.messages, { ask: body?.ask, text: body?.text });
   response.writeHead(200, {
     ...securityHeaders("text/event-stream; charset=utf-8"),
     "Cache-Control": "no-store, no-transform",
   });
-  writeSse(response, "status", { label: started.job.label, job: started.job });
+  writeSse(response, "status", {
+    label: plan.target === "openai" ? "맥이 오픈에게 묻는 중" : started.job.label,
+    job: started.job,
+    ask: plan.target,
+  });
   const abort = new AbortController();
   liveJobs.set(started.job.id, abort);
   try {
     let answer = "";
-    for await (const fragment of askRoomModelTokens(started.room.messages, { signal: abort.signal })) {
+    for await (const fragment of roomTurnTokens(started.room.messages, {
+      ask: body?.ask,
+      text: body?.text,
+      signal: abort.signal,
+    })) {
       if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
       answer += fragment;
       writeSse(response, "delta", { choices: [{ index: 0, delta: { content: fragment } }] });
@@ -797,6 +808,7 @@ async function main() {
           iosApp: getIosAppReleaseInfo(),
           lanUrl: LAN_PUBLIC_URL,
           loopback: isLoopback(request),
+          openaiAsk: openaiAskStatus(),
         });
       }
       if (request.method === "GET" && url.pathname === "/api/room") {
@@ -817,7 +829,11 @@ async function main() {
         const started = await roomStore.addUser(body?.text);
         if (body?.stream === false) {
           try {
-            const answer = await askRoomModel(started.room.messages);
+            const plan = planRoomTurn(started.room.messages, { ask: body?.ask, text: body?.text });
+            if (plan.target === "openai") {
+              await audit({ event: "openai_ask", questionChars: plan.question.length });
+            }
+            const answer = await roomTurnAnswer(started.room.messages, { ask: body?.ask, text: body?.text });
             return json(response, 200, await roomStore.finishJob(started.job.id, { ok: true, answer }));
           } catch (error) {
             await audit({ event: "room_say_failed", errorClass: error?.name ?? "Error" });
@@ -827,7 +843,7 @@ async function main() {
             }));
           }
         }
-        return streamRoomSay(response, roomStore, started);
+        return streamRoomSay(response, roomStore, started, body);
       }
       if (request.method === "GET" && url.pathname === "/api/join-pending") {
         if (device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
