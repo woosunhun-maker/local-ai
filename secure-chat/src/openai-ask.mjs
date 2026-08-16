@@ -67,6 +67,7 @@ export function openaiAskStatus() {
     via: OPENAI_CHAT_URL,
     model: OPENAI_LOCAL_MODEL,
     apiKey: false,
+    autonomous: true,
     history: false,
     memory: false,
     tools: false,

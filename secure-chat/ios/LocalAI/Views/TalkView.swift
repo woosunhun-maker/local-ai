@@ -318,7 +318,7 @@ struct TalkView: View {
             Text("맥에 말하면 됩니다.")
                 .font(.title3)
                 .foregroundStyle(HouseColor.ink)
-            Text("이 화면은 문일 뿐이고, 기억은 맥에 있습니다.")
+            Text("물어보라고 하지 않아도, 필요할 때 맥이 오픈에게 스스로 묻습니다. 기억은 맥에 있습니다.")
                 .font(.subheadline)
                 .foregroundStyle(HouseColor.mute)
         }

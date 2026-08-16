@@ -1,5 +1,6 @@
-import { askOpenAITokens, parseOpenAIAsk, OPENAI_EMPTY_QUESTION } from "./openai-ask.mjs";
+import { askOpenAITokens, OPENAI_EMPTY_QUESTION, OPENAI_LOCAL_UNAVAILABLE } from "./openai-ask.mjs";
 import { askRoomModelTokens } from "./room-ask.mjs";
+import { planSelfConsult } from "./self-consult.mjs";
 
 export function lastUserText(messages, fallback = "") {
   if (!Array.isArray(messages)) return String(fallback ?? "");
@@ -10,8 +11,24 @@ export function lastUserText(messages, fallback = "") {
   return String(fallback ?? "");
 }
 
-export function planRoomTurn(messages, { ask, text } = {}) {
-  return parseOpenAIAsk(lastUserText(messages, text), { ask });
+export async function planRoomTurn(messages, { ask, text, lessonStore } = {}) {
+  const snapshot = lessonStore && typeof lessonStore.snapshot === "function"
+    ? await lessonStore.snapshot()
+    : { lastConsultAt: 0, consultCountToday: 0, lessons: [] };
+  return {
+    ...planSelfConsult(lastUserText(messages, text), {
+      ask,
+      lastConsultAt: snapshot.lastConsultAt,
+      consultCountToday: snapshot.consultCountToday,
+    }),
+    lessons: snapshot.lessons ?? [],
+  };
+}
+
+async function rememberConsult(lessonStore, question, answer) {
+  if (!lessonStore || typeof lessonStore.remember !== "function") return;
+  if (!answer || answer.includes(OPENAI_LOCAL_UNAVAILABLE)) return;
+  await lessonStore.remember(question, answer);
 }
 
 export async function* roomTurnTokens(messages, {
@@ -21,17 +38,35 @@ export async function* roomTurnTokens(messages, {
   fetchImpl,
   token,
   readToken,
+  lessonStore,
 } = {}) {
-  const plan = planRoomTurn(messages, { ask, text });
-  if (plan.target === "openai") {
+  const plan = await planRoomTurn(messages, { ask, text, lessonStore });
+  if (plan.mode === "openai_only") {
     if (!plan.question) {
       yield OPENAI_EMPTY_QUESTION;
       return;
     }
-    yield* askOpenAITokens(plan.question, { signal, fetchImpl, token, readToken });
+    let consult = "";
+    for await (const fragment of askOpenAITokens(plan.question, { signal, fetchImpl, token, readToken })) {
+      consult += fragment;
+      yield fragment;
+    }
+    await rememberConsult(lessonStore, plan.question, consult);
     return;
   }
-  yield* askRoomModelTokens(messages, { signal, fetchImpl });
+
+  for await (const fragment of askRoomModelTokens(messages, { signal, fetchImpl, lessons: plan.lessons })) {
+    yield fragment;
+  }
+
+  if (plan.mode !== "self" || !plan.question) return;
+  yield "\n\n";
+  let consult = "";
+  for await (const fragment of askOpenAITokens(plan.question, { signal, fetchImpl, token, readToken })) {
+    consult += fragment;
+    yield fragment;
+  }
+  await rememberConsult(lessonStore, plan.question, consult);
 }
 
 export async function roomTurnAnswer(messages, options) {

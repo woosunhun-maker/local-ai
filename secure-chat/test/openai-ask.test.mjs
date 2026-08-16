@@ -43,6 +43,7 @@ test("질문 속 비밀 모양은 지우고 보낸다", () => {
 test("상태에는 API 키가 없고 맥 루프백만 있다", () => {
   const status = openaiAskStatus();
   assert.equal(status.apiKey, false);
+  assert.equal(status.autonomous, true);
   assert.equal(status.via, OPENAI_CHAT_URL);
   assert.equal(status.model, OPENAI_LOCAL_MODEL);
   assert.equal(assertLocalOpenAIUrl(OPENAI_CHAT_URL), OPENAI_CHAT_URL);
@@ -112,7 +113,10 @@ test("방 턴은 오픈 경로에서 예전 말을 보내지 않는다", async (
     { role: "user", content: "오픈에게 물어봐 1+1" },
   ];
   assert.equal(lastUserText(room), "오픈에게 물어봐 1+1");
-  assert.deepEqual(planRoomTurn(room), { target: "openai", question: "1+1" });
+  const plan = await planRoomTurn(room);
+  assert.equal(plan.target, "openai");
+  assert.equal(plan.mode, "openai_only");
+  assert.equal(plan.question, "1+1");
   const answer = await roomTurnAnswer(room, {
     token: "local-proxy",
     fetchImpl: async (url, init) => {
