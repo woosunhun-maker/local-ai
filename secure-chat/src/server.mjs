@@ -803,6 +803,14 @@ async function main() {
         if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
         return json(response, 200, await roomStore.snapshot());
       }
+      if (request.method === "POST" && url.pathname === "/api/room/clear") {
+        if (!hasScope(device, "chat") || device.role !== "owner") {
+          return json(response, 403, { error: "owner_device_required" });
+        }
+        const room = await roomStore.clear();
+        await audit({ event: "room_cleared" });
+        return json(response, 200, room);
+      }
       if (request.method === "POST" && url.pathname === "/api/room/say") {
         if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
         const body = await readBody(request);

@@ -51,6 +51,11 @@ export class RoomStore {
     return this.#read();
   }
 
+  async clear() {
+    await this.#write(emptyRoom());
+    return this.#read();
+  }
+
   async addUser(text) {
     const content = String(text ?? "").trim().slice(0, 8_000);
     if (!content) fail("empty_room_message");

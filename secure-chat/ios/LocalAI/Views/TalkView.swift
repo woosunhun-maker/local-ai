@@ -8,6 +8,7 @@ final class TalkModel: ObservableObject {
     @Published var statusLine: String?
     @Published var errorText: String?
     @Published var sending = false
+    @Published var confirmClear = false
 
     private var streamTask: Task<Void, Never>?
     private var liveReplyID: UUID?
@@ -89,8 +90,13 @@ final class TalkModel: ObservableObject {
                     finished = true
                 }
             }
-            guard finished, !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw HouseError.interrupted
+            if !finished || answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let recovered = await waitForAnswer(after: text) {
+                    answer = recovered
+                    finished = true
+                } else {
+                    throw HouseError.interrupted
+                }
             }
             patch(replyID) {
                 $0.text = answer
@@ -111,16 +117,61 @@ final class TalkModel: ObservableObject {
                 $0.delivery = .failed
             }
         } catch {
-            errorText = error.localizedDescription
-            patch(replyID) {
-                if $0.text.isEmpty { $0.text = "답을 받지 못했습니다." }
-                $0.delivery = .failed
+            if let recovered = await waitForAnswer(after: text) {
+                patch(replyID) {
+                    $0.text = recovered
+                    $0.delivery = .done
+                }
+                link = .linked
+                errorText = nil
+            } else {
+                errorText = error.localizedDescription
+                patch(replyID) {
+                    if $0.text.isEmpty { $0.text = "답을 받지 못했습니다." }
+                    $0.delivery = .failed
+                }
             }
         }
         sending = false
         statusLine = nil
         streamTask = nil
         liveReplyID = nil
+    }
+
+    func clearRoom() async {
+        do {
+            room = try await HouseClient.shared.clearRoom()
+            errorText = nil
+            statusLine = nil
+            link = .linked
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func waitForAnswer(after text: String) async -> String? {
+        for _ in 0..<45 {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return nil }
+            do {
+                let remote = try await HouseClient.shared.room()
+                statusLine = remote.jobLabel ?? "맥이 답하는 중"
+                if let answer = latestAnswer(in: remote, after: text) {
+                    return answer
+                }
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+
+    private func latestAnswer(in remote: HouseRoom, after text: String) -> String? {
+        guard let userIndex = remote.messages.lastIndex(where: { $0.role == .user && $0.text == text }) else {
+            return nil
+        }
+        let rest = remote.messages.suffix(from: userIndex + 1)
+        return rest.last(where: { $0.role == .assistant && !$0.text.isEmpty })?.text
     }
 
     private func patch(_ messageID: UUID, mutate: (inout HouseMessage) -> Void) {
@@ -152,18 +203,38 @@ struct TalkView: View {
                         .padding(.horizontal, 24)
                         .padding(.vertical, 10)
                 }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 composer
             }
         }
+        .scrollDismissesKeyboard(.never)
         .task {
             await model.start()
-            composerFocused = true
+            keepKeyboard()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { await model.refresh(keepMessages: true) }
-                composerFocused = true
+                keepKeyboard()
             }
+        }
+        .onChange(of: model.sending) { _, _ in
+            keepKeyboard()
+        }
+        .confirmationDialog("맥에 있는 이 방을 비울까요?", isPresented: $model.confirmClear, titleVisibility: .visible) {
+            Button("방 비우기", role: .destructive) {
+                Task { await model.clearRoom() }
+            }
+            Button("취소", role: .cancel) {}
+        }
+    }
+
+    private func keepKeyboard() {
+        composerFocused = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            composerFocused = true
         }
     }
 
@@ -187,6 +258,9 @@ struct TalkView: View {
             Menu {
                 Button("다시 붙기") {
                     Task { await model.refresh(keepMessages: true) }
+                }
+                Button("이 방 비우기", role: .destructive) {
+                    model.confirmClear = true
                 }
                 Button("이 아이폰 연결 끊기", role: .destructive, action: onUnpair)
             } label: {
@@ -226,7 +300,8 @@ struct TalkView: View {
                     proxy.scrollTo(last, anchor: .bottom)
                 }
             }
-            .onTapGesture { composerFocused = true }
+            .scrollDismissesKeyboard(.never)
+            .onTapGesture { keepKeyboard() }
         }
     }
 
@@ -281,7 +356,7 @@ struct TalkView: View {
                     .focused($composerFocused)
                     .onSubmit {
                         model.send()
-                        composerFocused = true
+                        keepKeyboard()
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
@@ -292,7 +367,7 @@ struct TalkView: View {
                     } else {
                         model.send()
                     }
-                    composerFocused = true
+                    keepKeyboard()
                 } label: {
                     Image(systemName: model.sending ? "stop.fill" : "arrow.up")
                         .font(.body.weight(.semibold))

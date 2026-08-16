@@ -106,6 +106,11 @@ actor HouseClient {
         return dto.asRoom
     }
 
+    func clearRoom() async throws -> HouseRoom {
+        let dto: RoomDTO = try await request(path: "/api/room/clear", method: "POST")
+        return dto.asRoom
+    }
+
     func say(text: String) throws -> AsyncThrowingStream<HouseStreamEvent, Error> {
         struct Body: Encodable {
             let text: String
@@ -127,6 +132,20 @@ actor HouseClient {
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else { throw HouseError.malformedResponse }
                     guard (200..<300).contains(http.statusCode) else { throw HouseError.rejected(http.statusCode) }
+                    let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? ""
+                    if contentType.contains("application/json") {
+                        var data = Data()
+                        for try await byte in bytes {
+                            data.append(byte)
+                        }
+                        let room = try JSONDecoder().decode(RoomDTO.self, from: data)
+                        if let answer = room.messages.last(where: { $0.role == "assistant" })?.content, !answer.isEmpty {
+                            continuation.yield(.delta(answer))
+                        }
+                        continuation.yield(.finished)
+                        continuation.finish()
+                        return
+                    }
                     var eventName = "message"
                     var lines: [String] = []
                     var finished = false

@@ -17,3 +17,13 @@ test("한 방에 말과 일이 같이 남고 끝나면 상태가 바뀐다", asy
   assert.equal(done.messages.at(-1).content, "봤다");
   await rm(dir, { recursive: true, force: true });
 });
+
+test("방을 비우면 말과 일이 모두 사라진다", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "room-clear-"));
+  const store = await new RoomStore(join(dir, "room.json")).initialize();
+  await store.addUser("지울 말");
+  const empty = await store.clear();
+  assert.equal(empty.messages.length, 0);
+  assert.equal(empty.jobs.length, 0);
+  await rm(dir, { recursive: true, force: true });
+});
