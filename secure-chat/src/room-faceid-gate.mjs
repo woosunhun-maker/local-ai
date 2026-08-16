@@ -2,7 +2,7 @@
  * 시킨 실행은 아이폰 앱의 Face ID/암호 한 번 뒤에만 맥이 한다.
  * macOS가 원격 AI에 Face ID를 열어주는 구조가 아니다.
  */
-import { doHouseSecurity, isMacDoCommand } from "./room-mac-do.mjs";
+import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
 
 export const ROOM_HOUSE_DO_KIND = "room.house-do.v1";
 
@@ -20,20 +20,27 @@ export function isFaceIdGateCommand(text) {
   return face && once;
 }
 
+function clip(value, max) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
 export function houseDoPayload(text) {
   return JSON.stringify({
     schema: "local-ai.room.house-do.v1",
-    action: "house.security",
+    action: "house.task",
     text: String(text ?? "").trim().slice(0, 500),
   });
 }
 
 export function houseDoRequest(text) {
+  const raw = String(text ?? "").trim();
   return {
     kind: ROOM_HOUSE_DO_KIND,
-    title: "집 점검 한 번",
-    summary: "방화벽·포트·계정·백업·감시만 맥이 확인하고, 결제·문자·전화는 하지 않습니다.",
-    payload: houseDoPayload(text),
+    title: clip(raw, 80) || "시킨 일 한 번",
+    summary: clip(`${raw} 결제·문자·전화는 하지 않습니다.`, 500),
+    payload: houseDoPayload(raw),
     dataCategories: ["house_status"],
   };
 }
@@ -69,7 +76,9 @@ export function lastDoText(messages, fallback = "방화벽·포트·계정·백�
   if (!Array.isArray(messages)) return fallback;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const item = messages[index];
-    if (item?.role === "user" && isMacDoCommand(item.content)) return item.content;
+    if (item?.role === "user" && (isOwnerDoCommand(item.content) || isMacDoCommand(item.content))) {
+      return item.content;
+    }
   }
   return fallback;
 }
@@ -103,5 +112,6 @@ export async function executeApprovedHouseDo({
   if (!consumed || consumed.kind !== ROOM_HOUSE_DO_KIND) {
     throw Object.assign(new Error("house_do_approval_invalid"), { statusCode: 403 });
   }
-  return doHouseSecurity({ execFileImpl });
+  const { parseHouseDoPayload, runHouseTask } = await import("./room-house-run.mjs");
+  return runHouseTask(parseHouseDoPayload(consumed.payload), { execFileImpl });
 }

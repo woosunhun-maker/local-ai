@@ -69,7 +69,7 @@ import {
   publicRoomApproval,
   ROOM_HOUSE_DO_KIND,
 } from "./room-faceid-gate.mjs";
-import { isMacDoCommand } from "./room-mac-do.mjs";
+import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
 import { planRoomTurn, roomTurnAnswer, roomTurnTokens } from "./room-turn.mjs";
 import { PairPinStore } from "./pair-pin.mjs";
 import { ConversationStore } from "./conversation-store.mjs";
@@ -206,7 +206,7 @@ async function roomPayload(roomStore, approvalStore, room) {
 async function streamRoomSay(response, roomStore, started, body = {}, lessonStore, approvalStore) {
   const plan = await planRoomTurn(started.room.messages, { ask: body?.ask, text: body?.text, lessonStore });
   const waitingFaceId = plan.mode === "faceid_gate"
-    || (plan.mode === "mac_work" && (isMacDoCommand(body?.text) || isFaceIdGateCommand(body?.text)));
+    || (plan.mode === "mac_work" && (isOwnerDoCommand(body?.text) || isMacDoCommand(body?.text) || isFaceIdGateCommand(body?.text)));
   response.writeHead(200, {
     ...securityHeaders("text/event-stream; charset=utf-8"),
     "Cache-Control": "no-store, no-transform",

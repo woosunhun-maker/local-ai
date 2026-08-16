@@ -1,7 +1,7 @@
 import { containsCredential } from "./security/credential-patterns.mjs";
 import { parseOpenAIAsk, sanitizeOpenAIQuestion } from "./openai-ask.mjs";
 import { isRoomNoise } from "./room-ask.mjs";
-import { isMacDoCommand } from "./room-mac-do.mjs";
+import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
 import { isFaceIdGateCommand } from "./room-faceid-gate.mjs";
 import { isMacWorkCommand } from "./room-mac-work.mjs";
 import { inspectRoomOwnerCommand } from "./room-owner-policy.mjs";
@@ -30,7 +30,9 @@ export function isSmallTalk(text) {
 
 export function isKnowledgeSeeking(text) {
   const value = String(text ?? "").trim();
-  if (!value || isSmallTalk(value) || isPrivateForConsult(value) || isMacWorkCommand(value)) return false;
+  if (!value || isSmallTalk(value) || isPrivateForConsult(value) || isMacWorkCommand(value) || isOwnerDoCommand(value)) {
+    return false;
+  }
   if (KNOWLEDGE.test(value)) return true;
   return value.length >= 18;
 }

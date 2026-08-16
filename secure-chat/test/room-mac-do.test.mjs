@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatHouseSecurity, isMacDoCommand } from "../src/room-mac-do.mjs";
+import { formatHouseSecurity, isMacDoCommand, isOwnerDoCommand } from "../src/room-mac-do.mjs";
 import { isMacWorkCommand } from "../src/room-mac-work.mjs";
 import { planSelfConsult } from "../src/self-consult.mjs";
 import { roomTurnAnswer } from "../src/room-turn.mjs";
+
+test("아이폰에서 시킨 실행은 질문과 다르게 맥이 할 일이다", () => {
+  assert.equal(isOwnerDoCommand("주의해야할점 점검해바라"), true);
+  assert.equal(isOwnerDoCommand("1~7까지점검결과를 보완해"), true);
+  assert.equal(isOwnerDoCommand("너가 하라고"), true);
+  assert.equal(isOwnerDoCommand("파이썬 리스트 정렬은 어떻게 해"), false);
+  assert.equal(isOwnerDoCommand("Swift에서 async let이 뭐가 다른지 설명해줘"), false);
+  assert.equal(planSelfConsult("너가 하라고").mode, "mac_work");
+});
 
 test("방화벽·포트 부탁은 맥이 할 일이다", () => {
   const text = "너가 방화벽 활성화 하고 포트점검하고 계정 분리하고 백업하고 모니터링도구 만들으라고";
@@ -27,6 +36,23 @@ test("점검 보고에는 sudo 가이드와 텔레그램이 없다", () => {
   assert.match(text, /맥이 직접 했습니다/);
   assert.match(text, /방화벽: 켜짐/);
   assert.doesNotMatch(text, /sudo |따라 하|telegram/i);
+});
+
+test("시킨 실행은 모델을 부르지 않고 Face ID 승인을 기다린다", async () => {
+  const answer = await roomTurnAnswer(
+    [{ role: "user", content: "너가 하라고" }],
+    {
+      fetchImpl: async (url) => {
+        if (String(url).includes("11434")) throw new Error("should_not_call_ollama");
+        return { ok: true, status: 200 };
+      },
+      execFileImpl: async () => {
+        throw new Error("should_not_run_until_faceid");
+      },
+    },
+  );
+  assert.match(answer, /Face ID 또는 암호/);
+  assert.doesNotMatch(answer, /텍스트 기반|불가능/);
 });
 
 test("방 턴은 방화벽 부탁에 모델을 부르지 않고 Face ID 승인을 기다린다", async () => {
