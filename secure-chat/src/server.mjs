@@ -197,7 +197,9 @@ async function streamRoomSay(response, roomStore, started, body = {}, lessonStor
   writeSse(response, "status", {
     label: plan.mode === "openai_only"
       ? "맥이 오픈에게 묻는 중"
-      : started.job.label,
+      : plan.mode === "mac_work"
+        ? "맥이 집을 보고 있습니다"
+        : started.job.label,
     job: started.job,
     ask: plan.mode,
   });

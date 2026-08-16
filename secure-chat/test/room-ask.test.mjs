@@ -8,7 +8,7 @@ test("방 시스템 프롬프트는 결제·전송을 혼자 하지 말라고 �
   assert.match(prompt, /결제/);
   assert.match(prompt, /보내지 않았고/);
   assert.match(prompt, /방금 한 말/);
-  assert.match(prompt, /Cursor 창/);
+  assert.match(prompt, /아이폰은 문/);
   assert.doesNotMatch(prompt, /telegram/i);
 });
 

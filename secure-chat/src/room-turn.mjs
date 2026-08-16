@@ -1,5 +1,6 @@
 import { askOpenAITokens, isOpenGatewayUp, OPENAI_EMPTY_QUESTION, OPENAI_LOCAL_UNAVAILABLE } from "./openai-ask.mjs";
 import { askRoomModelTokens } from "./room-ask.mjs";
+import { reportMacWork } from "./room-mac-work.mjs";
 import { planSelfConsult } from "./self-consult.mjs";
 
 export function lastUserText(messages, fallback = "") {
@@ -39,8 +40,13 @@ export async function* roomTurnTokens(messages, {
   token,
   readToken,
   lessonStore,
+  execFileImpl,
 } = {}) {
   const plan = await planRoomTurn(messages, { ask, text, lessonStore });
+  if (plan.mode === "mac_work") {
+    yield await reportMacWork({ fetchImpl, execFileImpl });
+    return;
+  }
   if (plan.mode === "openai_only") {
     if (!plan.question) {
       yield OPENAI_EMPTY_QUESTION;

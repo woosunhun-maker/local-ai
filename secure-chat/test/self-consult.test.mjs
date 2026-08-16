@@ -31,8 +31,8 @@ test("인사와 비밀은 스스로 오픈에게 보내지 않는다", () => {
 test("Cursor 화면을 보고 진행하라는 부탁은 오픈에게 보내지 않는다", () => {
   const text = "지금 내맥으로 커서 ide로 앱 띄어놨거든? 그거보면서 지시해서 진행하고 나한테 보고좀";
   assert.equal(isOutsideRoomTask(text), true);
-  assert.equal(planSelfConsult(text).mode, "local");
-  assert.equal(planSelfConsult(text).reason, "room_only");
+  assert.equal(planSelfConsult(text).mode, "mac_work");
+  assert.equal(planSelfConsult(text).reason, "mac_work");
 });
 
 test("물어보라고 하지 않아도 일반 지식은 스스로 묻는다", () => {
