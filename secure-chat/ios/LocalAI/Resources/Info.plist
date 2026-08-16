@@ -19,11 +19,21 @@
   <key>CFBundleShortVersionString</key>
   <string>2.0.0</string>
   <key>CFBundleVersion</key>
-  <string>2</string>
+  <string>4</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key>
     <true/>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>192.168.50.235</key>
+      <dict>
+        <key>NSExceptionAllowsInsecureHTTPLoads</key>
+        <true/>
+        <key>NSIncludesSubdomains</key>
+        <false/>
+      </dict>
+    </dict>
   </dict>
   <key>NSLocalNetworkUsageDescription</key>
   <string>같은 집 네트워크에서 맥의 로컬 AI와만 대화합니다.</string>

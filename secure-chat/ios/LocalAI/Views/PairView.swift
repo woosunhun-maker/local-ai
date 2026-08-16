@@ -52,6 +52,7 @@ struct PairView: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .focused($pinFocused)
+                        .accessibilityIdentifier("house.pin")
                         .frame(width: 1, height: 1)
                         .opacity(0.01)
                         .onChange(of: pin) { _, value in

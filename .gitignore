@@ -24,6 +24,7 @@ UPDD_*.command
 DerivedData/
 .build/
 build/
+secure-chat/macos/dist/
 
 # Reinstallable dependencies and generated reports.
 node_modules/
