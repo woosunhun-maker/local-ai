@@ -160,17 +160,20 @@ struct TalkView: View {
 
     var body: some View {
         ZStack {
-            HouseColor.background.ignoresSafeArea()
+            HouseColor.paper.ignoresSafeArea()
             VStack(spacing: 0) {
                 header
+                Rectangle()
+                    .fill(HouseColor.rule)
+                    .frame(height: 1)
                 messages
                 if let error = model.errorText {
                     Text(error)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(HouseColor.warn)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
                 }
                 composer
             }
@@ -183,28 +186,30 @@ struct TalkView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 14) {
             Button { showTalks = true } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.body.weight(.semibold))
+                Image(systemName: "square.stack")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(HouseColor.ink)
+                    .frame(width: 36, height: 36)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("H")
-                    .font(.headline.weight(.semibold))
-                Text(model.current?.title ?? "집")
+                    .font(.system(.title3, design: .serif).weight(.medium))
+                    .foregroundStyle(HouseColor.ink)
+                Text(model.current?.title == "새 대화" ? "집" : (model.current?.title ?? "집"))
                     .font(.caption)
-                    .foregroundStyle(HouseColor.muted)
+                    .foregroundStyle(HouseColor.mute)
                     .lineLimit(1)
             }
             Spacer()
-            Text(model.link.title)
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(model.link == .linked ? HouseColor.accent.opacity(0.18) : HouseColor.card)
-                .clipShape(Capsule())
+            HStack(spacing: 6) {
+                HouseDot(live: model.link == .linked)
+                Text(model.link.title)
+                    .font(.caption)
+                    .foregroundStyle(HouseColor.mute)
+            }
         }
-        .foregroundStyle(HouseColor.ink)
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
     }
@@ -212,27 +217,25 @@ struct TalkView: View {
     private var messages: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    if let talk = model.current, talk.messages.isEmpty, model.link == .linked {
-                        Text("맥에 말하면 됩니다. 이 폰에는 대화를 저장하지 않습니다.")
-                            .font(.subheadline)
-                            .foregroundStyle(HouseColor.muted)
-                            .padding(.top, 24)
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    if let talk = model.current, talk.messages.isEmpty {
+                        emptyState
                     }
                     if let talk = model.current {
                         ForEach(talk.messages) { message in
-                            messageBubble(message)
+                            letter(message)
                                 .id(message.id)
                         }
                     }
                     if let status = model.statusLine {
                         Text(status)
-                            .font(.caption)
-                            .foregroundStyle(HouseColor.muted)
+                            .font(.footnote)
+                            .foregroundStyle(HouseColor.mute)
                             .id("status")
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 28)
             }
             .onChange(of: model.current?.messages.last?.text) { _, _ in
                 if let last = model.current?.messages.last?.id {
@@ -242,49 +245,76 @@ struct TalkView: View {
         }
     }
 
-    private func messageBubble(_ message: HouseMessage) -> some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 48) }
-            Text(message.text.isEmpty ? "…" : message.text)
-                .font(.body)
-                .foregroundStyle(message.role == .user ? Color.white : HouseColor.ink)
-                .padding(14)
-                .background(
-                    message.role == .user ? HouseColor.accent : HouseColor.card,
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                )
-            if message.role == .assistant { Spacer(minLength: 48) }
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("H")
+                .font(.system(size: 40, weight: .medium, design: .serif))
+                .foregroundStyle(HouseColor.ink)
+            Text("맥에 말하면 됩니다.")
+                .font(.title3)
+                .foregroundStyle(HouseColor.ink)
+            Text("이 화면은 문일 뿐이고, 기억은 맥에 있습니다.")
+                .font(.subheadline)
+                .foregroundStyle(HouseColor.mute)
         }
+        .padding(.top, 32)
+    }
+
+    private func letter(_ message: HouseMessage) -> some View {
+        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
+            Text(message.role == .user ? "나" : "H")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(HouseColor.mute)
+            Text(message.text.isEmpty ? "…" : message.text)
+                .font(message.role == .assistant ? .system(.body, design: .serif) : .body)
+                .foregroundStyle(message.role == .user ? HouseColor.paper : HouseColor.ink)
+                .lineSpacing(5)
+                .padding(.horizontal, message.role == .user ? 14 : 0)
+                .padding(.vertical, message.role == .user ? 10 : 0)
+                .background {
+                    if message.role == .user {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(HouseColor.mine)
+                    }
+                }
+                .frame(maxWidth: 300, alignment: message.role == .user ? .trailing : .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            TextField("맥에게 말하기", text: $model.draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...6)
-                .focused($composerFocused)
-                .padding(12)
-                .background(HouseColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            Button {
-                composerFocused = false
-                if model.sending {
-                    model.stop()
-                } else {
-                    model.send()
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(HouseColor.rule)
+                .frame(height: 1)
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("맥에게", text: $model.draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...5)
+                    .focused($composerFocused)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background(HouseColor.sheet, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                Button {
+                    if model.sending {
+                        model.stop()
+                    } else {
+                        model.send()
+                    }
+                } label: {
+                    Image(systemName: model.sending ? "stop.fill" : "arrow.up")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(HouseColor.paper)
+                        .frame(width: 40, height: 40)
+                        .background(HouseColor.ink, in: Circle())
                 }
-            } label: {
-                Image(systemName: model.sending ? "stop.fill" : "arrow.up")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(HouseColor.accent, in: Circle())
+                .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.sending)
+                .opacity(model.link == .linked ? 1 : 0.35)
             }
-            .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.sending)
-            .opacity(model.link == .linked ? 1 : 0.4)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(HouseColor.paper)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(HouseColor.background)
     }
 
     private var talkList: some View {
@@ -297,23 +327,24 @@ struct TalkView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(talk.title)
+                                .font(.system(.body, design: .serif))
                                 .foregroundStyle(HouseColor.ink)
                             Text(talk.updatedAt.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption)
-                                .foregroundStyle(HouseColor.muted)
+                                .foregroundStyle(HouseColor.mute)
                         }
                     }
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(HouseColor.background)
-            .navigationTitle("맥에 있는 대화")
+            .background(HouseColor.paper)
+            .navigationTitle("맥에 있는 말")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("다시 연결") { onUnpair() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("새 대화") {
+                    Button("새 말") {
                         Task {
                             await model.newTalk()
                             showTalks = false
@@ -322,26 +353,6 @@ struct TalkView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
-    }
-}
-
-enum HouseColor {
-    static let background = Color(red: 0.07, green: 0.08, blue: 0.09)
-    static let card = Color(red: 0.14, green: 0.15, blue: 0.16)
-    static let ink = Color(red: 0.93, green: 0.93, blue: 0.90)
-    static let muted = Color(red: 0.62, green: 0.62, blue: 0.58)
-    static let accent = Color(red: 0.72, green: 0.48, blue: 0.28)
-    static let warn = Color(red: 0.92, green: 0.62, blue: 0.38)
-}
-
-struct HouseButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(HouseColor.accent.opacity(configuration.isPressed ? 0.7 : 1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .foregroundStyle(.white)
+        .preferredColorScheme(.light)
     }
 }

@@ -11,55 +11,65 @@ struct PairView: View {
 
     var body: some View {
         ZStack {
-            HouseColor.background.ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 8) {
+            HouseColor.paper.ignoresSafeArea()
+            VStack(spacing: 0) {
+                Spacer(minLength: 36)
+                VStack(spacing: 14) {
                     Text("H")
-                        .font(.system(size: 44, weight: .semibold, design: .serif))
-                    Text("이 집의 문")
+                        .font(.system(size: 64, weight: .medium, design: .serif))
+                        .foregroundStyle(HouseColor.ink)
+                    Text("집")
                         .font(.title3)
-                        .foregroundStyle(HouseColor.muted)
-                    Text("같은 집 와이파이에서 맥과만 붙습니다.\n대화는 맥에만 남고, 이 폰에는 쌓지 않습니다.")
+                        .foregroundStyle(HouseColor.mute)
+                    Text("같은 와이파이에서 맥과만 만납니다.\n말은 맥에 남고, 이 폰에는 쌓지 않습니다.")
                         .font(.subheadline)
-                        .foregroundStyle(HouseColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(HouseColor.mute)
+                        .lineSpacing(4)
                 }
 
-                Button(waiting ? "맥 화면에서 허용을 기다리는 중…" : "이 맥에 연결") {
+                Spacer(minLength: 40)
+
+                Button(waiting ? "맥에서 이 폰을 허용해 주세요" : "이 맥에 연결") {
                     requestJoin()
                 }
                 .buttonStyle(HouseButtonStyle())
                 .disabled(busy)
+                .padding(.horizontal, 8)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("맥에 뜬 숫자 4자리")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("또는 맥에 뜬 숫자")
                         .font(.caption)
-                        .foregroundStyle(HouseColor.muted)
-                    HStack(spacing: 12) {
-                        TextField("0000", text: $pin)
-                            .keyboardType(.numberPad)
-                            .textContentType(.oneTimeCode)
-                            .multilineTextAlignment(.center)
-                            .font(.title2.monospacedDigit().weight(.semibold))
-                            .focused($pinFocused)
-                            .onChange(of: pin) { _, value in
-                                pin = String(value.filter(\.isNumber).prefix(4))
-                            }
-                        Button("넣기") { submitPin() }
-                            .disabled(busy || pin.count != 4)
+                        .foregroundStyle(HouseColor.mute)
+                    HStack(spacing: 10) {
+                        ForEach(0..<4, id: \.self) { index in
+                            pinSlot(at: index)
+                        }
                     }
-                    .padding(14)
-                    .background(HouseColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .contentShape(Rectangle())
+                    .onTapGesture { pinFocused = true }
+                    TextField("", text: $pin)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .focused($pinFocused)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .onChange(of: pin) { _, value in
+                            pin = String(value.filter(\.isNumber).prefix(4))
+                            if pin.count == 4 { submitPin() }
+                        }
                 }
+                .padding(.top, 28)
 
                 if waiting {
                     ProgressView()
-                        .tint(HouseColor.accent)
+                        .padding(.top, 24)
+                        .tint(HouseColor.ink)
                 }
 
                 Spacer()
             }
-            .padding(28)
+            .padding(32)
         }
         .alert("연결 실패", isPresented: Binding(
             get: { errorText != nil },
@@ -69,6 +79,20 @@ struct PairView: View {
         } message: {
             Text(errorText ?? "")
         }
+    }
+
+    private func pinSlot(at index: Int) -> some View {
+        let digit = pin.dropFirst(index).first.map(String.init) ?? ""
+        return Text(digit)
+            .font(.title.monospacedDigit().weight(.medium))
+            .foregroundStyle(HouseColor.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 64)
+            .background(HouseColor.sheet, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(pinFocused && pin.count == index ? HouseColor.ink : HouseColor.rule, lineWidth: 1)
+            )
     }
 
     private func requestJoin() {

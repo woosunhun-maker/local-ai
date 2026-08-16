@@ -14,6 +14,6 @@ struct RootView: View {
                 PairView { paired = true }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }

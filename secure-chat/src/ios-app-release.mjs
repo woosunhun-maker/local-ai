@@ -4,7 +4,7 @@
  */
 export const IOS_APP_RELEASE = Object.freeze({
   marketing_version: "2.0.0",
-  build: "1",
+  build: "2",
   update_policy: "xcode_reinstall",
   note: "H 2.0은 맥 대화 문만 남긴 새 얼굴입니다. Mac에서 Xcode로 설치합니다.",
 });
