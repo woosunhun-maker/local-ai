@@ -2,8 +2,19 @@ import { assertConversationModel, LOCAL_CONVERSATION_MODEL } from "./local-model
 
 const OLLAMA = "http://127.0.0.1:11434/api/chat";
 
-export function buildRoomSystemPrompt() {
-  return [
+function roomOllamaBody(messages, { stream, lessons } = {}) {
+  return {
+    model: LOCAL_CONVERSATION_MODEL,
+    stream,
+    think: false,
+    keep_alive: "10m",
+    messages: [{ role: "system", content: buildRoomSystemPrompt(lessons) }, ...messages],
+    options: { num_ctx: 8_192, num_predict: 1_024 },
+  };
+}
+
+export function buildRoomSystemPrompt(lessons = []) {
+  const lines = [
     "너는 이 맥에서만 사는 로컬 AI다. 창은 여러 개여도 기억은 하나다.",
     "한국어로 짧게 답한다. 추측하지 말고, 모르면 모른다고 한다.",
     "지금 사용자가 방금 한 말에만 답한다. 예전에 끊긴 오타나 키보드 불평을 다시 꺼내지 않는다.",
@@ -11,7 +22,18 @@ export function buildRoomSystemPrompt() {
     "링크를 지어내지 않는다. 직접 열지 않은 주소는 주지 않는다. 후보면 추측이라고 적는다.",
     "보내지 않았고, 결제하지 않았고, 파일을 고치지 않았으면 했다고 말하지 않는다.",
     "결제·남에게 보내기는 혼자 하지 않고, 해도 되는지 한 줄로 묻는다.",
-  ].join("\n");
+    "이 방은 말만 한다. 맥 화면, Cursor 창, 마우스, 키보드는 보지 못하고 조작하지 않는다.",
+    "화면을 보면서 진행하거나 보고하라는 부탁에는, 못 한다고 짧게 말하고 코드를 붙여 달라고 한다.",
+  ];
+  const usable = (Array.isArray(lessons) ? lessons : [])
+    .map((item) => String(item?.lesson ?? "").trim())
+    .filter((lesson) => lesson.length >= 12)
+    .slice(-8);
+  if (usable.length > 0) {
+    lines.push("집에서 스스로 모은 일반 교훈이다. 개인 이야기는 아니다.");
+    for (const lesson of usable) lines.push(`- ${lesson.slice(0, 240)}`);
+  }
+  return lines.join("\n");
 }
 
 const NOISE = /^(?:[\s.·…ㅇ어ㅏㅓㅜㅠㅡㅣㄱ-ㅎㅏ-ㅣ]{1,12})$/u;
@@ -43,7 +65,7 @@ export function selectRoomContext(messages, { limit = 8 } = {}) {
   }));
 }
 
-export async function askRoomModelStream(messages, { fetchImpl = fetch, model = LOCAL_CONVERSATION_MODEL, signal } = {}) {
+export async function askRoomModelStream(messages, { fetchImpl = fetch, model = LOCAL_CONVERSATION_MODEL, signal, lessons } = {}) {
   assertConversationModel(model);
   if (!Array.isArray(messages) || messages.length < 1) throw new Error("invalid_room_messages");
   const recent = selectRoomContext(messages, { limit: 8 });
@@ -51,11 +73,7 @@ export async function askRoomModelStream(messages, { fetchImpl = fetch, model = 
   const response = await fetchImpl(OLLAMA, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: true,
-      messages: [{ role: "system", content: buildRoomSystemPrompt() }, ...recent],
-    }),
+    body: JSON.stringify(roomOllamaBody(recent, { stream: true, lessons })),
     signal,
   });
   if (!response.ok || !response.body) throw Object.assign(new Error("room_model_failed"), { statusCode: 502 });
@@ -81,7 +99,7 @@ export async function* askRoomModelTokens(messages, options) {
   }
 }
 
-export async function askRoomModel(messages, { fetchImpl = fetch, model = LOCAL_CONVERSATION_MODEL } = {}) {
+export async function askRoomModel(messages, { fetchImpl = fetch, model = LOCAL_CONVERSATION_MODEL, lessons } = {}) {
   assertConversationModel(model);
   if (!Array.isArray(messages) || messages.length < 1) throw new Error("invalid_room_messages");
   const recent = selectRoomContext(messages, { limit: 8 });
@@ -89,11 +107,7 @@ export async function askRoomModel(messages, { fetchImpl = fetch, model = LOCAL_
   const response = await fetchImpl(OLLAMA, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      messages: [{ role: "system", content: buildRoomSystemPrompt() }, ...recent],
-    }),
+    body: JSON.stringify(roomOllamaBody(recent, { stream: false, lessons })),
   });
   if (!response.ok) throw Object.assign(new Error("room_model_failed"), { statusCode: 502 });
   const body = await response.json();

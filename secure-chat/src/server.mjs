@@ -59,7 +59,10 @@ import { codexWorkerReady } from "./telegram/codex-runtime-readiness.mjs";
 import { OWNER_ACTION_KIND } from "./telegram/owner-action-plan.mjs";
 import { OwnerActionExecutor } from "./telegram/owner-action-executor.mjs";
 import { RoomStore } from "./room-store.mjs";
-import { askRoomModel, askRoomModelTokens } from "./room-ask.mjs";
+import { openaiAskStatus } from "./openai-ask.mjs";
+import { askRoomModelTokens } from "./room-ask.mjs";
+import { LessonStore } from "./lesson-store.mjs";
+import { planRoomTurn, roomTurnAnswer, roomTurnTokens } from "./room-turn.mjs";
 import { PairPinStore } from "./pair-pin.mjs";
 import { ConversationStore } from "./conversation-store.mjs";
 import { JoinStore } from "./join-store.mjs";
@@ -76,6 +79,7 @@ const GROWTH_TRANSPORT = process.env.LOCAL_AI_GROWTH_TRANSPORT ?? "disabled";
 const INTENT_SHADOW_MODE = process.env.LOCAL_AI_INTENT_SHADOW ?? "disabled";
 const AUTH_PATH = `${ROOT}/data/secure-chat/auth.json`;
 const ROOM_PATH = `${ROOT}/data/secure-chat/room.json`;
+const LESSON_PATH = process.env.LOCAL_AI_LESSON_PATH ?? `${ROOT}/data/secure-chat/lessons.json`;
 const CONVERSATION_PATH = `${ROOT}/data/secure-chat/conversations.json`;
 const CONVERSATION_IMAGE_DIR = `${ROOT}/data/secure-chat/chat-images`;
 const JOIN_PATH = `${ROOT}/data/secure-chat/joins.json`;
@@ -180,39 +184,60 @@ function conversationIdFrom(pathname, suffix = "") {
 }
 
 function writeSse(response, event, data) {
-  response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  if (response.writableEnded || response.destroyed) return false;
+  return response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-async function streamRoomSay(response, roomStore, started) {
+async function streamRoomSay(response, roomStore, started, body = {}, lessonStore) {
+  const plan = await planRoomTurn(started.room.messages, { ask: body?.ask, text: body?.text, lessonStore });
   response.writeHead(200, {
     ...securityHeaders("text/event-stream; charset=utf-8"),
     "Cache-Control": "no-store, no-transform",
   });
-  writeSse(response, "status", { label: started.job.label, job: started.job });
+  writeSse(response, "status", {
+    label: plan.mode === "openai_only"
+      ? "맥이 오픈에게 묻는 중"
+      : started.job.label,
+    job: started.job,
+    ask: plan.mode,
+  });
   const abort = new AbortController();
   liveJobs.set(started.job.id, abort);
+  let clientGone = false;
   try {
     let answer = "";
-    for await (const fragment of askRoomModelTokens(started.room.messages, { signal: abort.signal })) {
+    for await (const fragment of roomTurnTokens(started.room.messages, {
+      ask: body?.ask,
+      text: body?.text,
+      signal: abort.signal,
+      readToken: proxyToken,
+      lessonStore,
+    })) {
       if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
       answer += fragment;
-      writeSse(response, "delta", { choices: [{ index: 0, delta: { content: fragment } }] });
+      if (!clientGone) {
+        try {
+          writeSse(response, "delta", { choices: [{ index: 0, delta: { content: fragment } }] });
+        } catch {
+          clientGone = true;
+        }
+      }
     }
     if (!answer.trim()) throw new Error("empty_room_model_response");
     const room = await roomStore.finishJob(started.job.id, { ok: true, answer });
-    writeSse(response, "done", { ok: true, job: room.jobs.at(-1), room });
+    if (!clientGone) writeSse(response, "done", { ok: true, job: room.jobs.at(-1), room });
   } catch (error) {
     const cancelled = error?.name === "AbortError" || abort.signal.aborted;
     const room = await roomStore.finishJob(started.job.id, {
       ok: false,
       answer: cancelled ? "중단했습니다." : "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
     });
-    if (!cancelled) writeSse(response, "error", { message: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다." });
-    writeSse(response, "done", { ok: false, job: room.jobs.at(-1), room });
+    if (!clientGone && !cancelled) writeSse(response, "error", { message: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다." });
+    if (!clientGone) writeSse(response, "done", { ok: false, job: room.jobs.at(-1), room });
   } finally {
     liveJobs.delete(started.job.id);
   }
-  response.end();
+  if (!response.writableEnded) response.end();
 }
 
 async function streamConversationSay(response, conversationStore, jobStore, conversationId, body) {
@@ -338,10 +363,14 @@ function finishStreamError(response, requestId, code, message) {
 }
 
 async function proxyToken() {
-  const result = await execFileAsync("/usr/bin/security", [
-    "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w",
-  ], { encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 });
-  return result.stdout.trim();
+  try {
+    const result = await execFileAsync("/usr/bin/security", [
+      "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w",
+    ], { encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 });
+    return result.stdout.trim();
+  } catch {
+    return "";
+  }
 }
 
 async function processJson(scriptPath, value, timeoutMs = 60_000) {
@@ -649,6 +678,7 @@ async function main() {
   const ttsRegistry = await createRuntimeTtsRegistry();
   const confirmedMemory = await new ConfirmedMemoryStore(CONFIRMED_MEMORY_PATH).initialize();
   const roomStore = await new RoomStore(ROOM_PATH).initialize();
+  const lessonStore = await new LessonStore(LESSON_PATH).initialize();
   const conversationStore = await new ConversationStore(CONVERSATION_PATH, CONVERSATION_IMAGE_DIR).initialize();
   const jobStore = await new JobStore(JOB_PATH).initialize();
   const joinStore = await new JoinStore(JOIN_PATH).initialize();
@@ -797,6 +827,7 @@ async function main() {
           iosApp: getIosAppReleaseInfo(),
           lanUrl: LAN_PUBLIC_URL,
           loopback: isLoopback(request),
+          openaiAsk: openaiAskStatus(),
         });
       }
       if (request.method === "GET" && url.pathname === "/api/room") {
@@ -817,7 +848,16 @@ async function main() {
         const started = await roomStore.addUser(body?.text);
         if (body?.stream === false) {
           try {
-            const answer = await askRoomModel(started.room.messages);
+            const plan = await planRoomTurn(started.room.messages, { ask: body?.ask, text: body?.text, lessonStore });
+            if (plan.consult) {
+              await audit({ event: "openai_ask", reason: plan.reason, questionChars: plan.question.length });
+            }
+            const answer = await roomTurnAnswer(started.room.messages, {
+              ask: body?.ask,
+              text: body?.text,
+              readToken: proxyToken,
+              lessonStore,
+            });
             return json(response, 200, await roomStore.finishJob(started.job.id, { ok: true, answer }));
           } catch (error) {
             await audit({ event: "room_say_failed", errorClass: error?.name ?? "Error" });
@@ -827,7 +867,7 @@ async function main() {
             }));
           }
         }
-        return streamRoomSay(response, roomStore, started);
+        return streamRoomSay(response, roomStore, started, body, lessonStore);
       }
       if (request.method === "GET" && url.pathname === "/api/join-pending") {
         if (device.role !== "owner") return json(response, 403, { error: "owner_device_required" });

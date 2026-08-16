@@ -45,12 +45,12 @@ final class TalkModel: ObservableObject {
         }
     }
 
-    func send() {
+    func send(askOpenAI: Bool = false) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !sending else { return }
         draft = ""
         errorText = nil
-        statusLine = "맥으로 보내는 중"
+        statusLine = askOpenAI ? "맥이 오픈에게 묻는 중" : "맥으로 보내는 중"
         sending = true
 
         let user = HouseMessage(id: UUID(), role: .user, text: text, createdAt: Date(), delivery: .sent)
@@ -61,7 +61,7 @@ final class TalkModel: ObservableObject {
         liveReplyID = reply.id
 
         streamTask = Task { [weak self] in
-            await self?.listen(replyID: reply.id, text: text)
+            await self?.listen(replyID: reply.id, text: text, askOpenAI: askOpenAI)
         }
     }
 
@@ -72,11 +72,11 @@ final class TalkModel: ObservableObject {
         statusLine = nil
     }
 
-    private func listen(replyID: UUID, text: String) async {
+    private func listen(replyID: UUID, text: String, askOpenAI: Bool = false) async {
         var answer = ""
         var finished = false
         do {
-            let stream = try await HouseClient.shared.say(text: text)
+            let stream = try await HouseClient.shared.say(text: text, askOpenAI: askOpenAI)
             for try await event in stream {
                 try Task.checkCancellation()
                 switch event {
@@ -259,6 +259,11 @@ struct TalkView: View {
                 Button("다시 붙기") {
                     Task { await model.refresh(keepMessages: true) }
                 }
+                Button("오픈에게 묻기") {
+                    model.send(askOpenAI: true)
+                    keepKeyboard()
+                }
+                .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.sending)
                 Button("이 방 비우기", role: .destructive) {
                     model.confirmClear = true
                 }
@@ -313,7 +318,7 @@ struct TalkView: View {
             Text("맥에 말하면 됩니다.")
                 .font(.title3)
                 .foregroundStyle(HouseColor.ink)
-            Text("이 화면은 문일 뿐이고, 기억은 맥에 있습니다.")
+            Text("물어보라고 하지 않아도, 필요할 때 맥이 오픈에게 스스로 묻습니다. 기억은 맥에 있습니다.")
                 .font(.subheadline)
                 .foregroundStyle(HouseColor.mute)
         }

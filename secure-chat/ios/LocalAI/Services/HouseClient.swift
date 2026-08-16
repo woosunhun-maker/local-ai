@@ -111,10 +111,11 @@ actor HouseClient {
         return dto.asRoom
     }
 
-    func say(text: String) throws -> AsyncThrowingStream<HouseStreamEvent, Error> {
+    func say(text: String, askOpenAI: Bool = false) throws -> AsyncThrowingStream<HouseStreamEvent, Error> {
         struct Body: Encodable {
             let text: String
             let clientRequestId: String
+            let ask: String?
         }
         guard let token = KeychainStore.token() else { throw HouseError.notPaired }
         var request = URLRequest(url: baseURL.appending(path: "/api/room/say"))
@@ -122,7 +123,11 @@ actor HouseClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(
-            Body(text: text, clientRequestId: UUID().uuidString.lowercased())
+            Body(
+                text: text,
+                clientRequestId: UUID().uuidString.lowercased(),
+                ask: askOpenAI ? "openai" : nil
+            )
         )
         let session = self.session
 

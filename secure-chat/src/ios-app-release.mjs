@@ -4,9 +4,9 @@
  */
 export const IOS_APP_RELEASE = Object.freeze({
   marketing_version: "2.0.0",
-  build: "4",
+  build: "5",
   update_policy: "xcode_reinstall",
-  note: "H 2.0은 맥 대화 문만 남긴 새 얼굴입니다. 아이폰 미러링·devicectl로 설치합니다.",
+  note: "H 2.0은 맥 대화 문입니다. 오픈에게는 맥에 띄운 127.0.0.1:18790으로만 질문 한 줄을 보냅니다. API 키는 없습니다. 아이폰 미러링·devicectl로 설치합니다.",
 });
 
 export function getIosAppReleaseInfo() {
