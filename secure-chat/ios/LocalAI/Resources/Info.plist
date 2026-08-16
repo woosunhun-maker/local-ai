@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>로컬AI</string>
+  <string>H</string>
   <key>CFBundleDevelopmentRegion</key>
   <string>ko</string>
   <key>CFBundleExecutable</key>
@@ -17,9 +17,16 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.2.0</string>
+  <string>2.0.0</string>
   <key>CFBundleVersion</key>
-  <string>12</string>
+  <string>1</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>같은 집 네트워크에서 맥의 로컬 AI와만 대화합니다.</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
   <key>UILaunchScreen</key>
@@ -39,13 +46,5 @@
       </array>
     </dict>
   </array>
-  <key>NSCameraUsageDescription</key>
-  <string>Mac에 안전하게 연결하기 위한 일회용 QR 코드를 읽습니다.</string>
-  <key>NSFaceIDUsageDescription</key>
-  <string>Local AI 승인 요청과 Codex 작업 계획을 소유자가 Face ID 또는 iPhone 암호로 직접 확인했는지 검증합니다.</string>
-  <key>NSMicrophoneUsageDescription</key>
-  <string>버튼을 누른 동안 로컬 AI에게 음성으로 질문하기 위해 사용합니다.</string>
-  <key>NSSpeechRecognitionUsageDescription</key>
-  <string>사용자가 직접 시작한 음성 질문을 텍스트로 변환합니다.</string>
 </dict>
 </plist>

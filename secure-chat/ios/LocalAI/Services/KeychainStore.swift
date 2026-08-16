@@ -6,7 +6,7 @@ enum KeychainStore {
     private static let account = "device-token"
 
     static func saveToken(_ token: String) throws {
-        guard let data = token.data(using: .utf8) else { throw LocalAIError.invalidCredential }
+        guard let data = token.data(using: .utf8) else { throw HouseError.invalidCredential }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -17,7 +17,7 @@ enum KeychainStore {
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         guard SecItemAdd(insert as CFDictionary, nil) == errSecSuccess else {
-            throw LocalAIError.invalidCredential
+            throw HouseError.invalidCredential
         }
     }
 

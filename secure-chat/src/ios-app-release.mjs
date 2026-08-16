@@ -3,10 +3,10 @@
  * Mac이 권장 build를 알리고, 설치는 Xcode/devicectl로만 한다.
  */
 export const IOS_APP_RELEASE = Object.freeze({
-  marketing_version: "1.2.0",
-  build: "12",
+  marketing_version: "2.0.0",
+  build: "1",
   update_policy: "xcode_reinstall",
-  note: "새 빌드는 Mac에서 설치합니다. 앱이 IPA를 받아 스스로 덮어쓰지 않습니다.",
+  note: "H 2.0은 맥 대화 문만 남긴 새 얼굴입니다. Mac에서 Xcode로 설치합니다.",
 });
 
 export function getIosAppReleaseInfo() {
