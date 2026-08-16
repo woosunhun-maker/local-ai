@@ -8,6 +8,11 @@ export const SELF_CONSULT_DAILY_CAP = 40;
 const PRIVATE = /비밀번호|패스워드|password|otp|인증번호|주민등록|계좌|카드번호|복구\s*코드|내 주소|우리 집|전화번호|휴대폰번호|여권|운전면허/iu;
 const SMALLTALK = /^(?:안녕(?:하세요)?|하이|ㅎㅇ|헬로|hello|hi|고마워|감사합니다?|ㅇㅋ|응|그래|좋아|ㅋㅋ+|ㅎㅎ+|네|아니)$/iu;
 const KNOWLEDGE = /[?？]|어떻게|왜\s|왜요|무엇|뭐가|최신|비교|차이|고치|고쳐|에러|오류|구현|설명|방법|원리|설계|추천|뜻|이유/u;
+const OUTSIDE_ROOM = /커서|cursor\s*ide|화면\s*보|그거\s*보|보면서\s*지시|지시해서\s*진행|나한테\s*보고|보고\s*좀|창을\s*보|맥\s*화면|모니터를\s*보/iu;
+
+export function isOutsideRoomTask(text) {
+  return OUTSIDE_ROOM.test(String(text ?? ""));
+}
 
 export function isPrivateForConsult(text) {
   const value = String(text ?? "");
@@ -51,6 +56,9 @@ export function planSelfConsult(text, {
   }
   if (isPrivateForConsult(text)) {
     return Object.freeze({ mode: "local", target: "local", consult: false, question: "", reason: "private" });
+  }
+  if (isOutsideRoomTask(text)) {
+    return Object.freeze({ mode: "local", target: "local", consult: false, question: "", reason: "room_only" });
   }
   if (isSmallTalk(text)) {
     return Object.freeze({ mode: "local", target: "local", consult: false, question: "", reason: "smalltalk" });

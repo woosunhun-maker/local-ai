@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { OPENAI_ASK_PREFIX, OPENAI_CHAT_URL } from "../src/openai-ask.mjs";
+import { OPENAI_ASK_PREFIX, OPENAI_CHAT_URL, OPENCLAW_GATEWAY_HEALTH } from "../src/openai-ask.mjs";
 import { LessonStore } from "../src/lesson-store.mjs";
 import { buildRoomSystemPrompt } from "../src/room-ask.mjs";
 import { roomTurnAnswer } from "../src/room-turn.mjs";
@@ -12,6 +12,7 @@ import {
   buildSelfQuestion,
   draftLesson,
   isKnowledgeSeeking,
+  isOutsideRoomTask,
   isPrivateForConsult,
   isSmallTalk,
   planSelfConsult,
@@ -25,6 +26,13 @@ test("인사와 비밀은 스스로 오픈에게 보내지 않는다", () => {
   assert.equal(planSelfConsult("내 계좌번호 알려줘").reason, "private");
   assert.equal(planSelfConsult("파이썬 리스트 정렬은 어떻게 해").mode, "self");
   assert.match(buildSelfQuestion("파이썬 리스트 정렬은 어떻게 해"), /일반 지식만/);
+});
+
+test("Cursor 화면을 보고 진행하라는 부탁은 오픈에게 보내지 않는다", () => {
+  const text = "지금 내맥으로 커서 ide로 앱 띄어놨거든? 그거보면서 지시해서 진행하고 나한테 보고좀";
+  assert.equal(isOutsideRoomTask(text), true);
+  assert.equal(planSelfConsult(text).mode, "local");
+  assert.equal(planSelfConsult(text).reason, "room_only");
 });
 
 test("물어보라고 하지 않아도 일반 지식은 스스로 묻는다", () => {
@@ -59,6 +67,7 @@ test("스스로 물을 때 로컬 답 뒤에 맥 오픈 답을 붙이고 교훈�
       lessonStore: store,
       fetchImpl: async (url, init) => {
         urls.push(url);
+        if (url === OPENCLAW_GATEWAY_HEALTH) return { ok: true };
         const body = JSON.parse(init.body);
         if (url.includes("11434")) {
           return {
@@ -96,6 +105,7 @@ test("오픈이 실패해도 로컬 답은 남기고 안내만 붙인다", async
     {
       token: "local-proxy",
       fetchImpl: async (url) => {
+        if (url === OPENCLAW_GATEWAY_HEALTH) return { ok: true };
         if (String(url).includes("11434")) {
           return {
             ok: true,
@@ -110,4 +120,29 @@ test("오픈이 실패해도 로컬 답은 남기고 안내만 붙인다", async
   );
   assert.match(answer, /로컬은 sort/);
   assert.match(answer, /127\.0\.0\.1:18790/);
+});
+
+test("오픈 게이트웨이가 꺼져 있으면 로컬 답만 하고 기다리지 않는다", async () => {
+  const urls = [];
+  const answer = await roomTurnAnswer(
+    [{ role: "user", content: "파이썬 리스트 정렬은 어떻게 해" }],
+    {
+      token: "local-proxy",
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        if (String(url).includes("18789")) return { ok: false };
+        if (String(url).includes("11434")) {
+          return {
+            ok: true,
+            body: (async function* () {
+              yield Buffer.from(`${JSON.stringify({ message: { content: "로컬만" }})}\n`);
+            })(),
+          };
+        }
+        throw new Error("should_not_call_18790");
+      },
+    },
+  );
+  assert.equal(answer, "로컬만");
+  assert.equal(urls.some((url) => url.includes("18790")), false);
 });

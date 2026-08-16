@@ -7,6 +7,7 @@ const execFileAsync = promisify(execFile);
 
 /** 맥에 이미 띄운 OpenClaw 채팅 프록시. 클라우드 API 키는 쓰지 않는다. */
 export const OPENAI_CHAT_URL = "http://127.0.0.1:18790/v1/chat/completions";
+export const OPENCLAW_GATEWAY_HEALTH = "http://127.0.0.1:18789/health";
 export const OPENAI_LOCAL_MODEL = "openclaw/default";
 export const OPENAI_ASK_PREFIX = "맥에 띄운 오픈에게 물은 답입니다.\n\n";
 export const OPENAI_QUESTION_LIMIT = 4_000;
@@ -78,6 +79,15 @@ export function openaiAskStatus() {
 export function assertLocalOpenAIUrl(url) {
   if (url !== OPENAI_CHAT_URL) throw new Error("openai_url_must_be_loopback");
   return url;
+}
+
+export async function isOpenGatewayUp({ fetchImpl = fetch, timeoutMs = 250 } = {}) {
+  try {
+    const response = await fetchImpl(OPENCLAW_GATEWAY_HEALTH, { signal: AbortSignal.timeout(timeoutMs) });
+    return Boolean(response?.ok);
+  } catch {
+    return false;
+  }
 }
 
 async function defaultProxyToken() {

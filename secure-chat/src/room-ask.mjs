@@ -2,6 +2,17 @@ import { assertConversationModel, LOCAL_CONVERSATION_MODEL } from "./local-model
 
 const OLLAMA = "http://127.0.0.1:11434/api/chat";
 
+function roomOllamaBody(messages, { stream, lessons } = {}) {
+  return {
+    model: LOCAL_CONVERSATION_MODEL,
+    stream,
+    think: false,
+    keep_alive: "10m",
+    messages: [{ role: "system", content: buildRoomSystemPrompt(lessons) }, ...messages],
+    options: { num_ctx: 8_192, num_predict: 1_024 },
+  };
+}
+
 export function buildRoomSystemPrompt(lessons = []) {
   const lines = [
     "너는 이 맥에서만 사는 로컬 AI다. 창은 여러 개여도 기억은 하나다.",
@@ -11,6 +22,8 @@ export function buildRoomSystemPrompt(lessons = []) {
     "링크를 지어내지 않는다. 직접 열지 않은 주소는 주지 않는다. 후보면 추측이라고 적는다.",
     "보내지 않았고, 결제하지 않았고, 파일을 고치지 않았으면 했다고 말하지 않는다.",
     "결제·남에게 보내기는 혼자 하지 않고, 해도 되는지 한 줄로 묻는다.",
+    "이 방은 말만 한다. 맥 화면, Cursor 창, 마우스, 키보드는 보지 못하고 조작하지 않는다.",
+    "화면을 보면서 진행하거나 보고하라는 부탁에는, 못 한다고 짧게 말하고 코드를 붙여 달라고 한다.",
   ];
   const usable = (Array.isArray(lessons) ? lessons : [])
     .map((item) => String(item?.lesson ?? "").trim())
@@ -60,11 +73,7 @@ export async function askRoomModelStream(messages, { fetchImpl = fetch, model = 
   const response = await fetchImpl(OLLAMA, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: true,
-      messages: [{ role: "system", content: buildRoomSystemPrompt(lessons) }, ...recent],
-    }),
+    body: JSON.stringify(roomOllamaBody(recent, { stream: true, lessons })),
     signal,
   });
   if (!response.ok || !response.body) throw Object.assign(new Error("room_model_failed"), { statusCode: 502 });
@@ -98,11 +107,7 @@ export async function askRoomModel(messages, { fetchImpl = fetch, model = LOCAL_
   const response = await fetchImpl(OLLAMA, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      messages: [{ role: "system", content: buildRoomSystemPrompt(lessons) }, ...recent],
-    }),
+    body: JSON.stringify(roomOllamaBody(recent, { stream: false, lessons })),
   });
   if (!response.ok) throw Object.assign(new Error("room_model_failed"), { statusCode: 502 });
   const body = await response.json();

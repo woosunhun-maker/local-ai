@@ -1,4 +1,4 @@
-import { askOpenAITokens, OPENAI_EMPTY_QUESTION, OPENAI_LOCAL_UNAVAILABLE } from "./openai-ask.mjs";
+import { askOpenAITokens, isOpenGatewayUp, OPENAI_EMPTY_QUESTION, OPENAI_LOCAL_UNAVAILABLE } from "./openai-ask.mjs";
 import { askRoomModelTokens } from "./room-ask.mjs";
 import { planSelfConsult } from "./self-consult.mjs";
 
@@ -50,11 +50,15 @@ export async function* roomTurnTokens(messages, {
     return;
   }
 
+  const gatewayReady = plan.mode === "self" && plan.question
+    ? isOpenGatewayUp({ fetchImpl })
+    : Promise.resolve(false);
+
   for await (const fragment of askRoomModelTokens(messages, { signal, fetchImpl, lessons: plan.lessons })) {
     yield fragment;
   }
 
-  if (plan.mode !== "self" || !plan.question) return;
+  if (plan.mode !== "self" || !plan.question || !(await gatewayReady)) return;
   yield "\n\n";
   yield* consultOpenAI(plan.question, { signal, fetchImpl, token, readToken, lessonStore });
 }
