@@ -62,6 +62,14 @@ import { RoomStore } from "./room-store.mjs";
 import { openaiAskStatus } from "./openai-ask.mjs";
 import { askRoomModelTokens } from "./room-ask.mjs";
 import { LessonStore } from "./lesson-store.mjs";
+import {
+  executeApprovedHouseDo,
+  findPendingHouseDo,
+  isFaceIdGateCommand,
+  publicRoomApproval,
+  ROOM_HOUSE_DO_KIND,
+} from "./room-faceid-gate.mjs";
+import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
 import { planRoomTurn, roomTurnAnswer, roomTurnTokens } from "./room-turn.mjs";
 import { PairPinStore } from "./pair-pin.mjs";
 import { ConversationStore } from "./conversation-store.mjs";
@@ -188,8 +196,17 @@ function writeSse(response, event, data) {
   return response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-async function streamRoomSay(response, roomStore, started, body = {}, lessonStore) {
+async function roomPayload(roomStore, approvalStore, room) {
+  const snapshot = room ?? await roomStore.snapshot();
+  const pending = await findPendingHouseDo(approvalStore);
+  const approval = publicRoomApproval(pending);
+  return { ...snapshot, approvals: approval ? [approval] : [] };
+}
+
+async function streamRoomSay(response, roomStore, started, body = {}, lessonStore, approvalStore) {
   const plan = await planRoomTurn(started.room.messages, { ask: body?.ask, text: body?.text, lessonStore });
+  const waitingFaceId = plan.mode === "faceid_gate"
+    || (plan.mode === "mac_work" && (isOwnerDoCommand(body?.text) || isMacDoCommand(body?.text) || isFaceIdGateCommand(body?.text)));
   response.writeHead(200, {
     ...securityHeaders("text/event-stream; charset=utf-8"),
     "Cache-Control": "no-store, no-transform",
@@ -197,11 +214,13 @@ async function streamRoomSay(response, roomStore, started, body = {}, lessonStor
   writeSse(response, "status", {
     label: plan.mode === "openai_only"
       ? "맥이 오픈에게 묻는 중"
-      : plan.mode === "mac_work"
-        ? "맥이 집을 보고 있습니다"
-        : plan.mode === "deny"
-          ? "하지 않습니다"
-          : started.job.label,
+      : waitingFaceId
+        ? "아이폰에서 Face ID로 승인해 주세요"
+        : plan.mode === "mac_work"
+          ? "맥이 집을 보고 있습니다"
+          : plan.mode === "deny"
+            ? "하지 않습니다"
+            : started.job.label,
     job: started.job,
     ask: plan.mode,
   });
@@ -216,6 +235,7 @@ async function streamRoomSay(response, roomStore, started, body = {}, lessonStor
       signal: abort.signal,
       readToken: proxyToken,
       lessonStore,
+      approvalStore,
     })) {
       if (abort.signal.aborted) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
       answer += fragment;
@@ -836,7 +856,7 @@ async function main() {
       }
       if (request.method === "GET" && url.pathname === "/api/room") {
         if (!hasScope(device, "chat")) return json(response, 403, { error: "device_scope_required" });
-        return json(response, 200, await roomStore.snapshot());
+        return json(response, 200, await roomPayload(roomStore, approvalStore));
       }
       if (request.method === "POST" && url.pathname === "/api/room/clear") {
         if (!hasScope(device, "chat") || device.role !== "owner") {
@@ -861,17 +881,26 @@ async function main() {
               text: body?.text,
               readToken: proxyToken,
               lessonStore,
+              approvalStore,
             });
-            return json(response, 200, await roomStore.finishJob(started.job.id, { ok: true, answer }));
+            return json(response, 200, await roomPayload(
+              roomStore,
+              approvalStore,
+              await roomStore.finishJob(started.job.id, { ok: true, answer }),
+            ));
           } catch (error) {
             await audit({ event: "room_say_failed", errorClass: error?.name ?? "Error" });
-            return json(response, 200, await roomStore.finishJob(started.job.id, {
-              ok: false,
-              answer: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
-            }));
+            return json(response, 200, await roomPayload(
+              roomStore,
+              approvalStore,
+              await roomStore.finishJob(started.job.id, {
+                ok: false,
+                answer: "지금은 답을 못 만들었습니다. 다시 시키면 됩니다.",
+              }),
+            ));
           }
         }
-        return streamRoomSay(response, roomStore, started, body, lessonStore);
+        return streamRoomSay(response, roomStore, started, body, lessonStore, approvalStore);
       }
       if (request.method === "GET" && url.pathname === "/api/join-pending") {
         if (device.role !== "owner") return json(response, 403, { error: "owner_device_required" });
@@ -1481,6 +1510,39 @@ async function main() {
             } catch (error) {
               await audit({
                 event: "owner_action_execute_failed",
+                requestHash: createHash("sha256").update(result.id).digest("hex"),
+                errorClass: error?.name ?? "Error",
+              });
+            }
+          });
+        }
+        if (result.kind === ROOM_HOUSE_DO_KIND) {
+          setImmediate(async () => {
+            try {
+              if (result.status === "rejected") {
+                await roomStore.addAssistant("거절해서 이번 점검은 하지 않았습니다.");
+                return;
+              }
+              if (result.status !== "approved") return;
+              const report = await executeApprovedHouseDo({
+                approvalStore,
+                approvalId: result.id,
+                payloadSha256: result.payloadSha256,
+              });
+              await roomStore.addAssistant(report);
+              await audit({
+                event: "room_house_do_executed",
+                requestHash: createHash("sha256").update(result.id).digest("hex"),
+                payloadSha256: result.payloadSha256,
+              });
+            } catch (error) {
+              try {
+                await roomStore.addAssistant("승인은 됐지만 이번 점검은 끝내지 못했습니다. 다시 시키면 Face ID 한 번 후에 맥이 합니다.");
+              } catch {
+                // 방 기록이 안 되어도 승인은 이미 소비됐을 수 있다
+              }
+              await audit({
+                event: "room_house_do_execute_failed",
                 requestHash: createHash("sha256").update(result.id).digest("hex"),
                 errorClass: error?.name ?? "Error",
               });

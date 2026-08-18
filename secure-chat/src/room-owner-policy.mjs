@@ -6,6 +6,20 @@
 
 export const ROOM_DENY_REPLY = "그건 아직 허용하지 않았습니다. 결제·문자·전화·집 밖 전송은 공유기를 넘기지 않고, 시켜도 하지 않습니다.";
 
+export const ROOM_POLICY_REPLY = [
+  "금지인 것만 안 합니다.",
+  "결제·송금·구매 확정, 문자·전화, 개인정보·결제 정보를 공유기 밖·클라우드·텔레그램으로 보내는 것.",
+  "질문은 승인 없이 바로 답합니다.",
+  "집 일(방화벽·포트·계정·백업·감시 같은 실행)만 아이폰 Face ID 한 번 뒤에 맥이 합니다.",
+].join(" ");
+
+export function isPolicyQuestion(text) {
+  const value = String(text ?? "");
+  const about = /금지|할수있|할\s*수\s*있|안되는|안 되는|허용/iu.test(value);
+  const asking = /[?？]|뭔지|뭐야|뭐가|얘기|말해|알려|있나|있어/iu.test(value);
+  return about && asking;
+}
+
 const DENIED = Object.freeze([
   Object.freeze({
     reason: "payment",

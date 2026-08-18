@@ -1,8 +1,10 @@
 import { containsCredential } from "./security/credential-patterns.mjs";
 import { parseOpenAIAsk, sanitizeOpenAIQuestion } from "./openai-ask.mjs";
 import { isRoomNoise } from "./room-ask.mjs";
+import { isMacDoCommand, isOwnerDoCommand } from "./room-mac-do.mjs";
+import { isFaceIdGateCommand } from "./room-faceid-gate.mjs";
 import { isMacWorkCommand } from "./room-mac-work.mjs";
-import { inspectRoomOwnerCommand } from "./room-owner-policy.mjs";
+import { inspectRoomOwnerCommand, isPolicyQuestion, ROOM_POLICY_REPLY } from "./room-owner-policy.mjs";
 
 export const SELF_CONSULT_COOLDOWN_MS = 8_000;
 export const SELF_CONSULT_DAILY_CAP = 40;
@@ -28,7 +30,9 @@ export function isSmallTalk(text) {
 
 export function isKnowledgeSeeking(text) {
   const value = String(text ?? "").trim();
-  if (!value || isSmallTalk(value) || isPrivateForConsult(value) || isMacWorkCommand(value)) return false;
+  if (!value || isSmallTalk(value) || isPrivateForConsult(value) || isMacWorkCommand(value) || isOwnerDoCommand(value)) {
+    return false;
+  }
   if (KNOWLEDGE.test(value)) return true;
   return value.length >= 18;
 }
@@ -56,6 +60,16 @@ export function planSelfConsult(text, {
     });
   }
   const parsed = parseOpenAIAsk(text, { ask });
+  if (isPolicyQuestion(text)) {
+    return Object.freeze({
+      mode: "policy",
+      target: "policy",
+      consult: false,
+      question: "",
+      reason: "policy",
+      reply: ROOM_POLICY_REPLY,
+    });
+  }
   if (parsed.target === "openai") {
     return Object.freeze({
       mode: "openai_only",
@@ -67,6 +81,16 @@ export function planSelfConsult(text, {
   }
   if (isPrivateForConsult(text)) {
     return Object.freeze({ mode: "local", target: "local", consult: false, question: "", reason: "private" });
+  }
+  if (isFaceIdGateCommand(text) && !isMacDoCommand(text)) {
+    return Object.freeze({
+      mode: "faceid_gate",
+      target: "iphone",
+      consult: false,
+      question: "",
+      reason: "faceid_gate",
+      reply: "",
+    });
   }
   if (isMacWorkCommand(text)) {
     return Object.freeze({ mode: "mac_work", target: "mac", consult: false, question: "", reason: "mac_work" });

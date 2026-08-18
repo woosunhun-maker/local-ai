@@ -101,6 +101,44 @@ actor HouseClient {
         throw lastError
     }
 
+    func registerApprovalKey() async throws {
+        struct Body: Encodable { let publicKeyDER: String }
+        struct Reply: Decodable { let created: Bool? }
+        let _: Reply = try await request(
+            path: "/api/approval-key",
+            method: "POST",
+            body: Body(publicKeyDER: try ApprovalKeyStore.publicKeyDER())
+        )
+    }
+
+    func pendingApprovals() async throws -> [HouseApproval] {
+        struct Reply: Decodable { let requests: [ApprovalDTO] }
+        let reply: Reply = try await request(path: "/api/approvals")
+        return reply.requests.compactMap(\.asApproval)
+    }
+
+    func decide(approval: HouseApproval, approved: Bool) async throws {
+        let decision = approved ? "approved" : "rejected"
+        let message = ApprovalSigning.message(
+            requestId: approval.id,
+            payloadSha256: approval.payloadSha256,
+            nonce: approval.nonce,
+            expiresAt: approval.expiresAt,
+            decision: decision
+        )
+        let signature = try await ApprovalKeyStore.sign(message)
+        struct Body: Encodable {
+            let decision: String
+            let signatureDER: String
+        }
+        struct Reply: Decodable { let status: String }
+        let _: Reply = try await request(
+            path: "/api/approvals/\(approval.id)/decision",
+            method: "POST",
+            body: Body(decision: decision, signatureDER: signature)
+        )
+    }
+
     func room() async throws -> HouseRoom {
         let dto: RoomDTO = try await request(path: "/api/room")
         return dto.asRoom
@@ -229,10 +267,36 @@ actor HouseClient {
     }
 }
 
+private struct ApprovalDTO: Decodable {
+    let id: String
+    let kind: String
+    let title: String
+    let summary: String
+    let payloadSha256: String
+    let nonce: String
+    let expiresAt: String
+}
+
+private extension ApprovalDTO {
+    var asApproval: HouseApproval? {
+        guard kind.hasPrefix("room.") else { return nil }
+        return HouseApproval(
+            id: id,
+            kind: kind,
+            title: title,
+            summary: summary,
+            payloadSha256: payloadSha256,
+            nonce: nonce,
+            expiresAt: expiresAt
+        )
+    }
+}
+
 private struct RoomDTO: Decodable {
     let messages: [RoomMessageDTO]
     let jobs: [RoomJobDTO]?
     let updatedAt: String
+    let approvals: [ApprovalDTO]?
 }
 
 private struct RoomMessageDTO: Decodable {
@@ -253,7 +317,8 @@ private extension RoomDTO {
         HouseRoom(
             messages: messages.compactMap(\.asMessage),
             jobLabel: jobs?.last(where: { $0.status == "running" })?.label,
-            updatedAt: HouseDate.parse(updatedAt)
+            updatedAt: HouseDate.parse(updatedAt),
+            pendingApproval: approvals?.compactMap(\.asApproval).first
         )
     }
 }

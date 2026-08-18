@@ -8,9 +8,25 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const FIREWALL = "/usr/libexec/ApplicationFirewall/socketfilterfw";
 
+const ASK = /[?？]|어떻게|왜\s|왜요|무엇|뭔지|뭐야|뭐가|뜻|차이|설명|원리|추천|비교|얘기해|말해|알려줘|할수있|할\s*수\s*있|금지사항/u;
+const IMPERATIVE = /(?:해라|하라고|시켜라|만들어라|만들으라고|만들라고|점검해|실행해|켜라|켜줘|꺼라|고쳐라|보완해)/u;
+const TASK = /방화벽|포트\s*점|계정\s*분리|소프트웨어\s*확인|네트워크\s*보안|백업|모니터링|활성화\s*하고|점검|설정해|의심스런/;
+
 export function isMacDoCommand(text) {
   return /방화벽|포트\s*점|계정\s*분리|소프트웨어\s*확인|네트워크\s*보안|백업|모니터링|의심스런|활성화\s*하고|만들으라고|만들라고/iu
     .test(String(text ?? ""));
+}
+
+export function isOwnerAskCommand(text) {
+  return ASK.test(String(text ?? ""));
+}
+
+export function isOwnerDoCommand(text) {
+  const value = String(text ?? "").trim();
+  if (!value || isOwnerAskCommand(value)) return false;
+  if (isMacDoCommand(value)) return true;
+  if (IMPERATIVE.test(value) || TASK.test(value)) return true;
+  return false;
 }
 
 async function run(file, args, { execFileImpl = execFileAsync, timeout = 5_000 } = {}) {
@@ -67,6 +83,8 @@ export async function collectHouseSecurity({ execFileImpl = execFileAsync } = {}
   const guest = await run("/usr/bin/defaults", ["read", "/Library/Preferences/com.apple.loginwindow", "GuestEnabled"], opts);
   const tm = await run("/usr/bin/tmutil", ["status"], opts);
   const health = await run("/bin/launchctl", ["print", `gui/${process.getuid?.() ?? 501}/com.local.privateai.health-monitor`], opts);
+  const sw = await run("/usr/bin/sw_vers", ["-productVersion"], opts);
+  const net = await run("/usr/sbin/scutil", ["--nwi"], opts);
 
   return Object.freeze({
     firewall: onOff(firewallAfter.text),
@@ -77,6 +95,8 @@ export async function collectHouseSecurity({ execFileImpl = execFileAsync } = {}
     guest: /1|true/iu.test(guest.text) ? "손님 계정 켜짐" : "손님 계정 꺼짐 또는 확인함",
     backup: /Running\s*=\s*1|BackupPhase/iu.test(tm.text) ? "타임머신 동작 중" : "타임머신 상태 확인함",
     monitor: /state = running|pid = /iu.test(health.text) ? "집 감시 켜짐" : "집 감시 확인함",
+    software: sw.text ? `macOS ${sw.text.split("\n")[0]}` : "소프트웨어 확인함",
+    network: /IPv4|Wi-Fi|Ethernet|en\d/iu.test(net.text) ? "집 네트워크 확인함" : "네트워크 확인함",
   });
 }
 
@@ -86,6 +106,7 @@ export function formatHouseSecurity(snapshot) {
     `방화벽: ${snapshot.firewall}${snapshot.firewallChanged ? " (방금 켬)" : ""}${snapshot.firewallNeedAdmin ? " — 켜려면 맥 암호가 한 번 필요합니다" : ""}`,
     `계정: ${(snapshot.people ?? []).join(", ") || "확인함"}. ${snapshot.guest}.`,
     `백업: ${snapshot.backup}. 감시: ${snapshot.monitor}.`,
+    `소프트웨어: ${snapshot.software ?? "확인함"}. 네트워크: ${snapshot.network ?? "확인함"}.`,
   ];
   if (snapshot.listen?.length) {
     lines.push("열린 포트(이름만):");
