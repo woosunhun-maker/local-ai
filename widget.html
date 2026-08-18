@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#1b1420" />
+    <script>
+      (function () {
+        var kind = new URLSearchParams(location.search).get("k") || "today";
+        var names = { today: "포근 오늘", heart: "포근 하트", sleep: "포근 수면" };
+        var title = names[kind] || names.today;
+        document.title = title;
+        var meta = document.createElement("meta");
+        meta.name = "apple-mobile-web-app-title";
+        meta.content = title;
+        document.head.appendChild(meta);
+      })();
+    </script>
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body class="widget-skin">
+    <main class="lock">
+      <p class="lock-date" id="lock-date"></p>
+      <p class="lock-clock" id="lock-clock"></p>
+      <section class="lock-stack" id="cards"></section>
+      <p class="lock-hint" id="hint">아래 공유 버튼 → <b>홈 화면에 추가</b>하면 이 위젯이 홈 화면에 남아요.</p>
+      <div class="lock-kinds">
+        <a href="?k=today">오늘</a>
+        <a href="?k=heart">하트</a>
+        <a href="?k=sleep">수면</a>
+      </div>
+    </main>
+    <script src="js/widget.js"></script>
+  </body>
+</html>
