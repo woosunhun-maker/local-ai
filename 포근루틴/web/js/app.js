@@ -258,7 +258,16 @@
 
   function installBanner() {
     if (isStandalone) return "";
-    return `<div class="install-banner">Safari 공유 버튼 → <b>홈 화면에 추가</b>하면 아이폰 앱처럼 쓸 수 있어요.</div>`;
+    return `<section class="card hint install-card">
+      <p class="card-kicker">이 아이폰에 앱으로 담기</p>
+      <p class="card-title" style="font-size:20px">홈 화면에 추가하면 끝이에요</p>
+      <p class="card-sub">아래 화면은 사파리가 아니라, 이 폰만의 기록이 됩니다. 만든 사람 맥은 필요 없어요.</p>
+      <ol class="install-steps">
+        <li>하단 <b>공유</b> 버튼을 눌러요</li>
+        <li><b>홈 화면에 추가</b>를 고르고 추가를 눌러요</li>
+        <li>홈 화면의 <b>포근루틴</b>을 눌러 앱처럼 써요</li>
+      </ol>
+    </section>`;
   }
 
   function renderToday() {

@@ -627,18 +627,12 @@ h1 {
   transform: translateX(-50%) translateY(0);
 }
 
-.install-banner {
-  display: none;
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  background: var(--lilac-soft);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-html:not(.standalone) .install-banner {
-  display: block;
+.install-card ol {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 @media (min-width: 520px) {

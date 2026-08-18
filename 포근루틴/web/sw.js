@@ -1,8 +1,7 @@
-const CACHE = "pogeun-v1";
+const CACHE = "pogeun-gift-v1";
 const FILES = [
   "./",
   "./index.html",
-  "./install.html",
   "./css/styles.css",
   "./js/app.js",
   "./manifest.webmanifest",

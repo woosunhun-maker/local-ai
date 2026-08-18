@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>포근루틴 보내기</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <style>
+      body { background: #fff8fb; }
+      .give { max-width: 420px; margin: 48px auto; padding: 0 20px 40px; }
+      #qr { display: grid; place-items: center; padding: 18px; background: #fff; border-radius: 24px; }
+      .url { word-break: break-all; font-size: 14px; color: #9a8792; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <main class="give">
+      <p class="eyebrow">GIVE</p>
+      <h1>필요한 사람에게 이 QR을 보여 주세요</h1>
+      <p class="card-sub">받는 사람 아이폰에서만 열리고, 기록은 그 폰 안에만 남습니다. 당신의 맥은 쓰지 않습니다.</p>
+      <div id="qr" style="margin: 18px 0"></div>
+      <p class="url" id="url"></p>
+      <ol class="install-steps">
+        <li>상대 아이폰 카메라로 QR을 찍어요</li>
+        <li>사파리가 한 번 열리면 <b>공유 → 홈 화면에 추가</b></li>
+        <li>이후에는 홈 화면의 포근루틴만 쓰면 됩니다</li>
+      </ol>
+    </main>
+    <script src="js/qrcode.min.js"></script>
+    <script>
+      const url = new URL("./", location.href).href;
+      document.getElementById("url").textContent = url;
+      new QRCode(document.getElementById("qr"), {
+        text: url,
+        width: 220,
+        height: 220,
+        colorDark: "#4a3b45",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    </script>
+  </body>
+</html>

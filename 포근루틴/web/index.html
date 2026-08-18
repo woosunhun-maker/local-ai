@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="포근루틴" />
+    <meta name="theme-color" content="#FFF8FB" />
+    <meta
+      name="description"
+      content="수면, 일기, 할 일, 안약, 계정 금고를 아이폰에서 조용히 돌보는 개인 기록"
+    />
+    <title>포근루틴</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" href="icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="top">
+        <div>
+          <p class="eyebrow" id="eyebrow">TODAY, GENTLY</p>
+          <h1 id="headline">소중한 나의 포근한 하루</h1>
+        </div>
+        <div class="top-actions">
+          <button type="button" class="icon-btn" data-act="open-vault" aria-label="계정 금고">
+            🔐
+          </button>
+          <button type="button" class="icon-btn" data-act="open-settings" aria-label="설정">
+            ⚙︎
+          </button>
+        </div>
+      </header>
+      <main id="screen"></main>
+      <nav class="tabbar" aria-label="주요 화면">
+        <button type="button" data-tab="today" class="on">
+          <span>⌂</span>오늘
+        </button>
+        <button type="button" data-tab="sleep">
+          <span>☾</span>수면
+        </button>
+        <button type="button" data-tab="diary">
+          <span>✎</span>일기
+        </button>
+        <button type="button" data-tab="routine">
+          <span>✓</span>루틴
+        </button>
+        <button type="button" data-tab="stats">
+          <span>✧</span>통계
+        </button>
+      </nav>
+    </div>
+    <div id="sheet" hidden></div>
+    <div id="toast" hidden></div>
+    <script src="js/app.js"></script>
+  </body>
+</html>
