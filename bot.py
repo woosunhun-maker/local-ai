@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -63,7 +64,7 @@ def required_env() -> tuple[str, str, str, set[str]]:
         raise SystemExit(1)
 
     model = os.getenv("OLLAMA_MODEL", "qwen3:8b").strip() or "qwen3:8b"
-    url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").strip()
+    url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11435").strip()
     allowed = {
         item.strip()
         for item in os.getenv("ALLOWED_CHAT_ID", "").split(",")
@@ -87,8 +88,48 @@ def is_allowed(chat_id: int, allowed: set[str]) -> bool:
     return str(chat_id) in allowed
 
 
+def persist_allowed_chat(chat_id: int) -> None:
+    """첫 메시지의 채팅 ID를 .env에 저장한다. 기존 값은 덮어쓰지 않는다."""
+    env_path = ROOT / ".env"
+    text = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+    match = re.search(r"^ALLOWED_CHAT_ID=(.*)$", text, re.MULTILINE)
+    if match and match.group(1).strip():
+        return
+    line = f"ALLOWED_CHAT_ID={chat_id}"
+    if match:
+        text = re.sub(r"^ALLOWED_CHAT_ID=.*$", line, text, flags=re.MULTILINE)
+    elif text and not text.endswith("\n"):
+        text = f"{text}\n{line}\n"
+    else:
+        text = f"{text}{line}\n"
+    env_path.write_text(text, encoding="utf-8")
+    log.info("ALLOWED_CHAT_ID를 %s 로 저장했다", chat_id)
+
+
+def claim_if_empty(chat_id: int, allowed: set[str]) -> set[str]:
+    if allowed:
+        return allowed
+    persist_allowed_chat(chat_id)
+    claimed = {str(chat_id)}
+    return claimed
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not update.message or not update.effective_chat:
+        return
+    allowed: set[str] = context.application.bot_data["allowed"]
+    chat_id = update.effective_chat.id
+    if not allowed:
+        allowed = claim_if_empty(chat_id, allowed)
+        context.application.bot_data["allowed"] = allowed
+        await update.message.reply_text(
+            f"이 채팅을 주인으로 등록했다. 채팅 ID: {chat_id}\n"
+            "이제부터 이 맥의 Qwen3 8B와 대화한다.\n"
+            "/reset 으로 기억을 지운다. /status 로 상태를 본다."
+        )
+        return
+    if not is_allowed(chat_id, allowed):
+        await deny(update, chat_id)
         return
     await update.message.reply_text(
         "로컬 AI가 준비됐다. 이 맥의 Qwen3 8B와 대화한다.\n"
@@ -151,8 +192,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("메시지 chat_id=%s", chat_id)
 
     if not allowed:
-        await deny(update, chat_id)
-        return
+        allowed = claim_if_empty(chat_id, allowed)
+        context.application.bot_data["allowed"] = allowed
+        await update.message.reply_text(
+            f"이 채팅을 주인으로 등록했다. 채팅 ID: {chat_id}\n"
+            "이제 이어서 답한다."
+        )
     if not is_allowed(chat_id, allowed):
         await deny(update, chat_id)
         return

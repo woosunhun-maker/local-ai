@@ -12,10 +12,10 @@ cd /Users/baehayeong/local-ai
 chmod +x scripts/*.sh
 ./scripts/install-ollama.sh
 ./scripts/setup.sh
-./bin/ollama pull qwen3:8b
+OLLAMA_HOST=127.0.0.1:11435 ./bin/ollama pull qwen3:8b
 ```
 
-Homebrew로 설치하지 않고, 공식 `ollama-darwin` 바이너리를 `bin/`에 둔다.
+이 프로필 전용으로 공식 `Ollama.app`을 `~/Applications`에 둔다. 다른 계정 Homebrew Ollama와 포트를 나눈다 (`11435`).
 
 ## 텔레그램 토큰 넣기
 
@@ -29,22 +29,30 @@ Homebrew로 설치하지 않고, 공식 `ollama-darwin` 바이너리를 `bin/`�
 cp -n .env.example .env
 ```
 
-4. 아래를 채운다.
+4. 토큰만 넣는다. 채팅 ID는 첫 메시지로 자동 등록된다.
+
+```bash
+./scripts/set-token.sh 'BotFather토큰'
+```
+
+또는 `.env`에 직접:
 
 ```
 TELEGRAM_BOT_TOKEN=여기에_토큰
 ALLOWED_CHAT_ID=
 ```
 
-5. 봇을 켠 뒤 텔레그램에서 아무 말이나 보낸다. 봇이 **채팅 ID**를 알려 준다.
-6. 그 숫자를 `ALLOWED_CHAT_ID`에 넣고 봇을 다시 시작한다.
+5. 텔레그램에서 봇에게 `/start` 또는 아무 말을 보낸다. 그 채팅이 주인으로 등록된다.
+
+허용되지 않은 채팅에는 모델을 호출하지 않는다. 기존 토큰은 지우지 않는다.
+
+## 맥에서 바로 대화
+
+텔레그램 토큰 없이도 이 맥에서 바로 대화할 수 있다.
 
 ```bash
-./scripts/stop.sh
-./scripts/start.sh
+/Users/baehayeong/local-ai/scripts/chat.sh
 ```
-
-허용되지 않은 채팅에는 모델을 호출하지 않는다.
 
 ## 실행 / 중지
 
@@ -64,7 +72,7 @@ ALLOWED_CHAT_ID=
 
 ## 구성
 
-- 모델: `qwen3:8b` (Ollama, 로컬 `127.0.0.1:11434`)
+- 모델: `qwen3:8b` (이 프로필 전용 Ollama, 로컬 `127.0.0.1:11435`)
 - 브리지: `bot.py`
 - 기억: `data/conversations.json` (최근 30턴)
 - 로그: `logs/`

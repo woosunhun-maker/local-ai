@@ -27,7 +27,7 @@ class OllamaClient:
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             raise OllamaError(
-                "Ollama에 연결하지 못했다. 맥에서 Ollama가 켜져 있는지 확인하라."
+                "이 프로필의 Ollama(11435)에 연결하지 못했다. scripts/start.sh 로 서버를 확인하라."
             ) from exc
         data = response.json()
         names = [item.get("name", "") for item in data.get("models", [])]
