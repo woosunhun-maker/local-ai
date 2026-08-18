@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>포근루틴 설치</title>
+    <link rel="icon" href="icons/apple-touch-icon.png" />
+    <style>
+      :root {
+        --bg: #fff8fb;
+        --pink: #e88ca8;
+        --lilac: #a88ad9;
+        --text: #4a3b45;
+        --mute: #9a8792;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+        display: grid;
+        place-items: center;
+        padding: 32px 18px;
+      }
+      main {
+        width: min(420px, 100%);
+        background: #fff;
+        border: 1px solid #f3e4eb;
+        border-radius: 28px;
+        padding: 28px 24px 32px;
+        box-shadow: 0 16px 40px rgba(168, 138, 217, 0.1);
+        text-align: center;
+      }
+      p.kicker {
+        margin: 0;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--lilac);
+        font-size: 11px;
+        font-weight: 700;
+      }
+      h1 {
+        margin: 8px 0 8px;
+        font-size: 26px;
+        letter-spacing: -0.03em;
+      }
+      .lead {
+        color: var(--mute);
+        line-height: 1.6;
+        margin: 0 0 20px;
+      }
+      .qr {
+        display: inline-block;
+        padding: 14px;
+        background: #fff;
+        border-radius: 20px;
+        border: 1px solid #f3e4eb;
+      }
+      .url {
+        margin: 16px 0 0;
+        font-size: 13px;
+        color: var(--lilac);
+        word-break: break-all;
+      }
+      ol {
+        text-align: left;
+        color: var(--text);
+        line-height: 1.7;
+        padding-left: 20px;
+        margin: 22px 0 0;
+      }
+      .alts {
+        margin-top: 18px;
+        display: grid;
+        gap: 16px;
+      }
+      a.btn {
+        display: inline-flex;
+        margin-top: 18px;
+        background: var(--pink);
+        color: #fff;
+        text-decoration: none;
+        padding: 12px 18px;
+        border-radius: 14px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">iPhone only</p>
+      <h1>포근루틴을 홈 화면에</h1>
+      <p class="lead">아이폰과 맥이 같은 Wi-Fi에 있어야 해요. QR을 찍은 뒤 Safari에서 홈 화면에 추가하세요.</p>
+      <div id="list"></div>
+      <ol>
+        <li>카메라로 QR을 찍고 Safari로 엽니다.</li>
+        <li>하단 공유 버튼을 누릅니다.</li>
+        <li><b>홈 화면에 추가</b>를 고릅니다.</li>
+        <li>홈 화면의 포근루틴 아이콘으로 앱처럼 씁니다.</li>
+      </ol>
+    </main>
+    <script src="js/qrcode.min.js"></script>
+    <script>
+      async function run() {
+        const res = await fetch("./meta.json");
+        const meta = await res.json();
+        const list = document.getElementById("list");
+        const urls = meta.urls && meta.urls.length ? meta.urls : [meta.url];
+        urls.forEach((url, index) => {
+          const wrap = document.createElement("div");
+          wrap.className = "alts";
+          const qr = document.createElement("div");
+          qr.className = "qr";
+          const box = document.createElement("div");
+          qr.appendChild(box);
+          const p = document.createElement("p");
+          p.className = "url";
+          p.textContent = url;
+          const a = document.createElement("a");
+          a.className = "btn";
+          a.href = "./";
+          a.textContent = index === 0 ? "맥에서 미리 보기" : "이 주소로 열기";
+          wrap.appendChild(qr);
+          wrap.appendChild(p);
+          if (index === 0) wrap.appendChild(a);
+          list.appendChild(wrap);
+          new QRCode(box, {
+            text: url,
+            width: 196,
+            height: 196,
+            colorDark: "#4A3B45",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+        });
+      }
+      run().catch(() => {
+        document.getElementById("list").innerHTML =
+          "<p class='lead'>설치 주소를 읽지 못했어요. 시작하기 스크립트를 다시 실행해 주세요.</p>";
+      });
+    </script>
+  </body>
+</html>
